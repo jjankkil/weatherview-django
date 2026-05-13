@@ -166,11 +166,20 @@ class WeatherStation:
             wind_dir if wind_dir != Constants.INVALID_VALUE else None, lang
         )
 
+        obs_time_str = ""
+        if self._latest_time.year > 1970:
+            try:
+                from django.utils import timezone as dj_tz
+                local_time = dj_tz.localtime(self._latest_time)
+                obs_time_str = local_time.strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                obs_time_str = self._latest_time.strftime("%d.%m.%Y %H:%M")
+
         return {
-            "observation_time": self._latest_time.strftime("%d.%m.%Y %H:%M") if self._latest_time.year > 1970 else "",
+            "observation_time": obs_time_str,
             "temperature": f"{temp} °C" if temp != Constants.INVALID_VALUE else "",
             "temperature_raw": temp if temp != Constants.INVALID_VALUE else None,
-            "feels_like": f"{feels} °C" if feels != Constants.INVALID_VALUE else "",
+            "feels_like": f"{round(feels)} °C" if feels != Constants.INVALID_VALUE else "",
             "temperature_change": self.get_formatted("ILMA_DERIVAATTA"),
             "wind_speed": self.get_formatted("KESKITUULI"),
             "wind_speed_raw": wind if wind != Constants.INVALID_VALUE else None,
