@@ -335,9 +335,6 @@ function esc(str) {
     .replace(/>/g, '&gt;');
 }
 
-// ── MRU (Most Recently Used) stations ────────────────────────
-const MRU_KEY = 'wx_mru_stations';
-const MRU_MAX = 5;
 
 function loadMru() {
   try {
