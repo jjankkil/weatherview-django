@@ -51,6 +51,7 @@ _DEFAULT_SETTINGS = {  #!< Default settings applied to all sessions
     "current_station_name": "",  #!< Display name of currently selected station
     "openweathermap_api_key": "",  #!< OpenWeatherMap API key for additional weather data
     "language": "fi",  #!< Display language ("fi" for Finnish, "en" for English)
+    "show_camera": True,  #!< Whether to display weather camera images (default: enabled)
 }
 
 
@@ -175,6 +176,7 @@ def api_settings_get(request):
             - current_station_name: Display name of selected station
             - openweathermap_api_key: API key for OpenWeatherMap (empty if not set)
             - language: Display language code ("fi" or "en")
+            - show_camera: Whether to display camera images (boolean)
     @details
     - HTTP method: GET only
     - Returns merged defaults + session values
@@ -202,7 +204,7 @@ def api_settings_save(request):
     - Request body: JSON object with setting keys and values
     - CSRF exempt: decorated with @csrf_exempt for SPA/AJAX requests
     - Allowed keys (whitelist): current_station_id, current_station_name,
-      openweathermap_api_key, language
+      openweathermap_api_key, language, show_camera
     - Partial updates: only provided keys are updated; others retain current values
     - Invalid JSON returns HTTP 400 Bad Request
     - All updates persisted to request.session for the current user
@@ -212,7 +214,8 @@ def api_settings_save(request):
       "current_station_id": 101234,
       "current_station_name": "Helsinki, KPA",
       "openweathermap_api_key": "your_api_key_here",
-      "language": "en"
+      "language": "en",
+      "show_camera": true
     }
     @endcode
     """
@@ -222,7 +225,7 @@ def api_settings_save(request):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
     settings = _get_settings(request)
-    allowed = {"current_station_id", "current_station_name", "openweathermap_api_key", "language"}
+    allowed = {"current_station_id", "current_station_name", "openweathermap_api_key", "language", "show_camera"}
     for key in allowed:
         if key in body:
             settings[key] = body[key]

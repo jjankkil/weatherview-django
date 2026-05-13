@@ -33,6 +33,9 @@
     <!-- Error banner -->
     <div id="error-banner" class="error-banner hidden"></div>
 
+    <!-- Content layout: weather + camera side by side on wide screens -->
+    <div class="content-layout">
+
     <!-- Main weather card -->
     <main id="weather-card" class="weather-card hidden">
 
@@ -105,6 +108,24 @@
 
     </main><!-- .weather-card -->
 
+    <!-- Camera panel -->
+    <aside id="camera-panel" class="camera-panel hidden">
+      <div class="camera-header">
+        <span id="camera-title" class="camera-title"></span>
+        <span id="camera-distance" class="camera-distance"></span>
+      </div>
+      <div class="carousel">
+        <button class="carousel-btn carousel-btn--prev" id="carousel-prev" aria-label="Previous">&#8249;</button>
+        <div class="carousel-track-wrap">
+          <div class="carousel-track" id="carousel-track"></div>
+        </div>
+        <button class="carousel-btn carousel-btn--next" id="carousel-next" aria-label="Next">&#8250;</button>
+      </div>
+      <div id="camera-updated" class="camera-updated"></div>
+    </aside>
+
+    </div><!-- .content-layout -->
+
     <!-- Footer / update controls -->
     <footer class="app-footer">
       <button id="refresh-btn" class="btn-refresh">
@@ -137,6 +158,11 @@
           API-avain tarvitaan säätilan symbolien ja ennusteen näyttämiseen.
           Rekisteröidy ilmaiseksi osoitteessa openweathermap.org.
         </p>
+
+        <div class="camera-setting">
+          <label for="camera-toggle">Näytä kelikameroiden kuvat:</label>
+          <input id="camera-toggle" type="checkbox" checked />
+        </div>
       </div>
       <div class="modal-footer">
         <button id="settings-save" class="btn-primary">Tallenna</button>
