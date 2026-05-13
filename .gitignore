@@ -13,3 +13,4 @@ staticfiles/
 .vscode/
 .idea/
 .claude/
+docs/doxygen/
