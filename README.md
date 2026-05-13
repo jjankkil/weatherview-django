@@ -4,7 +4,7 @@ A browser-based road weather viewer for Finnish roads. Displays live observation
 
 Pick any of 400+ Finnish road weather stations and see current observations, FMI feels-like temperature, wind, visibility, present weather and an optional short-range forecast — all in the browser.
 
-<img src="docs/screenshot.png" alt="Screenshot of the Tiesää web UI" width="50%">
+<img src="docs/screenshot.png" alt="Screenshot of the Tiesää web UI" width="80%">
 
 ---
 
@@ -76,6 +76,10 @@ The key is stored in the browser session (signed cookie). It is never persisted 
 
 ## Architecture
 
+For a detailed technical architecture including component diagrams, sequence diagrams, domain models, and runtime behavior, see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+### Directory structure
+
 ```
 weatherview-django/
 ├── manage.py
@@ -96,7 +100,8 @@ weatherview-django/
     │   └── index.html
     ├── static/weather/
     │   ├── css/style.css
-    │   └── js/app.js           # Vanilla JS frontend
+    │   ├── js/app.js           # Vanilla JS frontend
+    │   └── js/constants.js     # UI configuration constants
     └── tests.py                # Offline test suite (mocked HTTP)
 scripts/
 └── smoke_test.py               # Live smoke test (hits real APIs)
@@ -139,6 +144,20 @@ python manage.py check
 ```
 
 The dev server reloads automatically on file changes.
+
+### Documentation
+
+Generate HTML documentation from source code comments:
+
+```bash
+doxygen Doxyfile
+```
+
+This generates HTML documentation in `docs/doxygen/html/`. Open `docs/doxygen/html/index.html` in your browser to view it.
+
+**Requirements:** Doxygen must be installed. On Windows, install via [Doxygen](https://www.doxygen.nl/download.html) or via package manager. On macOS: `brew install doxygen`. On Linux or WSL: `apt-get install doxygen` (Debian/Ubuntu) or equivalent.
+
+---
 
 ### Testing
 

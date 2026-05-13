@@ -21,6 +21,7 @@ No database is used. All observation data is fetched on demand and parsed in mem
 flowchart LR
     subgraph Browser
         UI["index.html + app.js<br/>(vanilla JS SPA)"]
+        CONST["constants.js<br/>(UI config)"]
         LS[("localStorage<br/>MRU list")]
     end
 
@@ -42,10 +43,12 @@ flowchart LR
 
     subgraph External
         DT[("Digitraffic<br/>road weather API")]
+        DTCam[("Digitraffic<br/>weathercam API")]
         OWM[("OpenWeatherMap<br/>current + forecast")]
     end
 
     UI <-->|fetch JSON| VIEWS
+    UI <-->|fetch JSON| DTCam
     UI <--> LS
     URLS --> VIEWS
     VIEWS --> SESSION
@@ -70,6 +73,8 @@ Key source locations:
 - [weather/services/weather_station.py](../weather/services/weather_station.py) — observation model + derived properties
 - [weather/services/physics.py](../weather/services/physics.py) — FMI feels-like formula
 - [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — SPA logic
+- [weather/static/weather/js/constants.js](../weather/static/weather/js/constants.js) — UI configuration constants
+- [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) — UI styling and weather camera layout
 
 ---
 
@@ -154,15 +159,15 @@ classDiagram
 
 ## 4. HTTP API (Server Surface)
 
-| Method | Path                       | View                  | Purpose                                              |
-| ------ | -------------------------- | --------------------- | ---------------------------------------------------- |
-| GET    | `/`                        | `index`               | Serves the SPA shell (`index.html`)                  |
-| GET    | `/api/stations/`           | `api_stations`        | Returns the cached, filtered station catalogue       |
-| GET    | `/api/station/<int:id>/`   | `api_station_data`    | Parsed observations + optional OWM forecast          |
-| GET    | `/api/settings/`           | `api_settings_get`    | Reads session settings                               |
-| POST   | `/api/settings/save/`      | `api_settings_save`   | Writes whitelisted session settings (CSRF-exempt)    |
+| Method | Path                     | View                | Purpose                                           |
+| ------ | ------------------------ | ------------------- | ------------------------------------------------- |
+| GET    | `/`                      | `index`             | Serves the SPA shell (`index.html`)               |
+| GET    | `/api/stations/`         | `api_stations`      | Returns the cached, filtered station catalogue    |
+| GET    | `/api/station/<int:id>/` | `api_station_data`  | Parsed observations + optional OWM forecast       |
+| GET    | `/api/settings/`         | `api_settings_get`  | Reads session settings                            |
+| POST   | `/api/settings/save/`    | `api_settings_save` | Writes whitelisted session settings (CSRF-exempt) |
 
-Session settings whitelist: `current_station_id`, `current_station_name`, `openweathermap_api_key`, `language`. Anything else in the POST body is silently dropped ([views.py:81-85](../weather/views.py#L81-L85)).
+Session settings whitelist: `current_station_id`, `current_station_name`, `openweathermap_api_key`, `language`, `show_camera`. Anything else in the POST body is silently dropped ([views.py:228](../weather/views.py#L228)).
 
 ---
 
@@ -197,7 +202,7 @@ sequenceDiagram
     Browser->>Django: GET /api/station/<id>/ (current or default)
 ```
 
-### 5.2 Station observation request
+### 5.2 Station observation request (backend)
 
 ```mermaid
 sequenceDiagram
@@ -205,7 +210,7 @@ sequenceDiagram
     participant Browser
     participant View as api_station_data
     participant WS as WeatherService
-    participant DT as Digitraffic
+    participant DT as Digitraffic<br/>(weather data)
     participant OWM as OpenWeatherMap
 
     Browser->>View: GET /api/station/23819/
@@ -229,7 +234,41 @@ sequenceDiagram
     Browser->>Browser: paint card, start countdown
 ```
 
-### 5.3 Adaptive refresh cadence
+### 5.3 Weather camera image loading (frontend)
+
+The weather camera feature is a separate, parallel fetch performed by the frontend. It does not go through the Django backend.
+
+**Design Rationale:**
+
+- **Performance:** Direct browser-to-CDN connection reduces latency for image delivery; Digitraffic's image CDN (`weathercam.digitraffic.fi`) is optimized for media serving.
+- **Separation of Concerns:** Django handles structured data (observations, metadata, settings); the browser handles media discovery and presentation (finding closest camera, rendering carousel).
+- **Resilience:** Camera failures don't impact weather observations. If Digitraffic's weathercam API is down, the observation card still renders correctly.
+- **Cost & Bandwidth:** Images bypass the Django server entirely—no bandwidth charge, disk I/O, or process memory cost. Leverages Digitraffic's infrastructure already in use.
+- **API Simplicity:** The `/api/station/<id>/` response stays small and fast (JSON only, no binary data). No need for server-side image caching or proxying.
+
+The tradeoff is that frontend code (`app.js`) needs to know the Digitraffic weathercam API details (endpoints, GeoJSON structure), which is why these URLs are centralized in `constants.js`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Browser as app.js
+    participant DTCam as Digitraffic<br/>weathercam API
+    participant DTImg as weathercam.digitraffic.fi<br/>(image host)
+
+    Browser->>DTCam: GET /api/weathercam/v1/stations (cached)
+    alt cache miss or refresh
+        DTCam-->>Browser: GeoJSON FeatureCollection with camera locations
+        Browser->>Browser: cache response in memory
+    end
+    Browser->>Browser: find closest camera to current station by haversine distance
+    Browser->>DTCam: GET /api/weathercam/v1/stations/{cameraId}
+    DTCam-->>Browser: {presets:[{id, presentationName, direction, ...}, ...]}
+    Browser->>DTImg: GET {CAMERA_IMAGE_BASE}/{presetId}.jpg (for each preset)
+    DTImg-->>Browser: JPEG image data
+    Browser->>Browser: populate carousel with image slides
+```
+
+### 5.4 Adaptive refresh cadence
 
 Each station has its own observation cadence. `WeatherStation` tracks two `dataUpdatedTime` values:
 
@@ -249,13 +288,19 @@ stateDiagram-v2
 
 This is the value the frontend uses to schedule the next `/api/station/<id>/` call — it can't refresh faster than the station actually updates ([weather_station.py:145-156](../weather/services/weather_station.py#L145-L156)).
 
-### 5.4 Error handling
+### 5.5 Error handling
 
-`WeatherService._get` swallows `RequestException`, records `_status` and `_error`, and returns `{}`. Callers check `has_error`:
+**Backend (Django):** `WeatherService._get` swallows `RequestException`, records `_status` and `_error`, and returns `{}`. Callers check `has_error`:
 
 - Station list errors → cache is **not** populated; the next request will retry.
 - Observation errors → view returns `{"error": ...}` with HTTP **502**.
 - OWM errors → silently degraded: `current_symbol = ""` and `forecast = []` are returned alongside the Digitraffic data.
+
+**Frontend (camera):** Weather camera image loading failures are gracefully handled:
+
+- Weathercam API fetch fails → camera panel is hidden; observation card remains visible.
+- Individual preset images fail to load → spinner is left visible; user can retry or dismiss.
+- No impact on observation data or other UI elements.
 
 ---
 
@@ -270,17 +315,21 @@ flowchart TB
     subgraph Client-side
         C1[("localStorage<br/>MRU station list, max 5")]
         C2[("In-memory JS state<br/>current station, timer")]
+        C3[("In-memory JS cache<br/>weathercam stations")]
     end
 
     S1 -.holds.-> K1["openweathermap_api_key"]
     S1 -.holds.-> K2["language (fi|en)"]
     S1 -.holds.-> K3["current_station_id / _name"]
+    S1 -.holds.-> K6["show_camera (boolean)"]
     S2 -.holds.-> K4["parsed WeatherStationList"]
     C1 -.holds.-> K5["recently selected stations"]
+    C3 -.holds.-> K7["GeoJSON camera stations<br/>from Digitraffic weathercam API"]
 ```
 
 - The OWM API key never touches a database or log file; it lives only in the signed-cookie session.
 - The station list is cached per-process. With multiple worker processes, each warms its own copy on first hit.
+- Weathercam station data is cached in-memory on the client; it persists for the page lifetime and is refreshed on browser reload.
 
 ---
 
@@ -330,26 +379,45 @@ flowchart TD
     E -->|yes| F[GET /api/station/id]
     E -->|no| G[Wait for user]
     F --> H[Render card,<br/>show countdown]
-    H --> I{Timer hits 0<br/>or user clicks 'Päivitä nyt'}
-    I --> F
-    G --> J[User picks station]
-    J --> K[POST /api/settings/save/<br/>current_station_*]
-    K --> L[Update MRU in localStorage]
-    L --> F
-    M([User toggles 🌐 / ⚙️]) --> N[POST /api/settings/save/]
-    N --> F
+    H --> I[Load weather camera<br/>images from Digitraffic]
+    I --> J{Timer hits 0<br/>or user clicks 'Päivitä nyt'}
+    J --> F
+    G --> K[User picks station]
+    K --> L[POST /api/settings/save/<br/>current_station_*]
+    L --> M[Update MRU in localStorage]
+    M --> F
+    N([User toggles 🌐 / ⚙️]) --> O[POST /api/settings/save/]
+    O --> F
 ```
 
 ---
 
-## 9. Testing Surfaces
+## 9. Weather Camera Feature
+
+The frontend displays weather camera images for each station. Camera URLs are fetched from the Digitraffic API alongside observation data.
+
+The UI:
+
+- Renders camera images in a carousel/gallery layout below the observation card
+- Automatically scales images responsively on different screen sizes
+- Refreshes camera images on the same cadence as observation data
+
+Related code:
+
+- [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — camera image loading and carousel logic
+- [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) — camera gallery styling
+- [weather/views.py](../weather/views.py) — includes camera data in API response
+
+---
+
+## 10. Testing Surfaces
 
 - **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, JSON parsing, and all view endpoints. Run: `python manage.py test weather`.
 - **Live smoke test** — [scripts/smoke_test.py](../scripts/smoke_test.py). Hits real Digitraffic (and OWM if a key is supplied).
 
 ---
 
-## 10. Operational Notes
+## 11. Operational Notes
 
 - **Sessions**: Django signed-cookie backend. No server-side session store needed; rotating `SECRET_KEY` invalidates all stored settings.
 - **Cache backend**: Default is in-process `LocMemCache`. Swap to Redis/Memcached if running multiple workers and you want a single shared station list.
