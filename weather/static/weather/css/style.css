@@ -553,6 +553,100 @@ html, body {
   border-top: 1px solid var(--border);
 }
 
+.carousel-slide img { cursor: zoom-in; }
+
+/* ── Camera lightbox ───────────────────────────────────────── */
+.camera-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.camera-lightbox.hidden { display: none; }
+
+.lightbox-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: rgba(255,255,255,0.12);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  transition: background 0.15s;
+}
+.lightbox-close:hover { background: rgba(255,255,255,0.28); }
+
+.lightbox-track-wrap {
+  flex: 1 1 0;
+  overflow: hidden;
+  max-width: 100vw;
+  max-height: 100vh;
+}
+
+.lightbox-track {
+  display: flex;
+  transition: transform 0.3s ease;
+}
+
+.lightbox-slide {
+  flex: 0 0 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.lightbox-slide img {
+  max-width: 100vw;
+  max-height: 100vh;
+  object-fit: contain;
+  display: block;
+}
+
+.lightbox-slide-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 8px 12px;
+  background: rgba(0,0,0,0.6);
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+}
+
+.lightbox-nav {
+  flex: 0 0 auto;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: #fff;
+  font-size: 40px;
+  line-height: 1;
+  width: 52px;
+  padding: 0;
+  cursor: pointer;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  z-index: 1;
+}
+.lightbox-nav:hover { background: rgba(255,255,255,0.22); }
+.lightbox-nav:disabled { opacity: 0.2; cursor: default; }
+
 
 /* ── Loading state ────────────────────────────────────────── */
 body.loading,

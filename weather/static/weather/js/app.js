@@ -189,6 +189,7 @@ function findNearestCamera(stations, lat, lon) {
  * @property {Array}  slides Array of preset objects augmented with a `loaded` boolean.
  */
 const carousel = { index: 0, slides: [] };
+const lightbox = { index: 0 };
 
 /**
  * @brief Navigate the carousel to a specific slide index.
@@ -274,6 +275,43 @@ function buildCarousel(presets, ts) {
   dom.cameraUpdated.textContent = first?.presentationName
     ? `${state.lang === 'en' ? 'Direction' : 'Suunta'} ${first.presentationName}`
     : '';
+}
+
+function lightboxGoTo(i) {
+  lightbox.index = i;
+  dom.lightboxTrack.style.transform = `translateX(-${i * 100}vw)`;
+  dom.lightboxPrev.disabled = i === 0;
+  dom.lightboxNext.disabled = i === carousel.slides.length - 1;
+}
+
+function openLightbox(startIndex) {
+  dom.lightboxTrack.innerHTML = '';
+  const carouselImgs = dom.carouselTrack.querySelectorAll('img');
+  carousel.slides.forEach((slide, i) => {
+    const div = document.createElement('div');
+    div.className = 'lightbox-slide';
+    const srcImg = carouselImgs[i];
+    if (srcImg) {
+      const img = new Image();
+      img.src = srcImg.src;
+      div.appendChild(img);
+    }
+    if (slide.presentationName) {
+      const label = document.createElement('div');
+      label.className = 'lightbox-slide-label';
+      label.textContent = slide.presentationName;
+      div.appendChild(label);
+    }
+    dom.lightboxTrack.appendChild(div);
+  });
+  dom.lightbox.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  lightboxGoTo(startIndex);
+}
+
+function closeLightbox() {
+  dom.lightbox.classList.add('hidden');
+  document.body.style.overflow = '';
 }
 
 /**
@@ -392,6 +430,11 @@ const dom = {
   carouselTrack:  $('carousel-track'),
   carouselPrev:   $('carousel-prev'),
   carouselNext:   $('carousel-next'),
+  lightbox:       $('camera-lightbox'),
+  lightboxClose:  $('lightbox-close'),
+  lightboxTrack:  $('lightbox-track'),
+  lightboxPrev:   $('lightbox-prev'),
+  lightboxNext:   $('lightbox-next'),
 };
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -739,6 +782,34 @@ function initEvents() {
     if (carousel.index < carousel.slides.length - 1) carouselGoTo(carousel.index + 1);
   });
 
+  dom.carouselTrack.addEventListener('click', e => {
+    const img = e.target.closest('img');
+    if (!img) return;
+    const slide = img.closest('.carousel-slide');
+    const slides = [...dom.carouselTrack.querySelectorAll('.carousel-slide')];
+    const idx = slides.indexOf(slide);
+    openLightbox(idx >= 0 ? idx : carousel.index);
+  });
+
+  dom.lightboxClose.addEventListener('click', closeLightbox);
+  dom.lightbox.addEventListener('click', e => {
+    if (e.target === dom.lightbox) closeLightbox();
+  });
+  dom.lightboxPrev.addEventListener('click', () => {
+    if (lightbox.index > 0) lightboxGoTo(lightbox.index - 1);
+  });
+  dom.lightboxNext.addEventListener('click', () => {
+    if (lightbox.index < carousel.slides.length - 1) lightboxGoTo(lightbox.index + 1);
+  });
+
+  let lightboxTouchX = 0;
+  dom.lightboxTrack.addEventListener('touchstart', e => { lightboxTouchX = e.touches[0].clientX; }, { passive: true });
+  dom.lightboxTrack.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - lightboxTouchX;
+    if (dx < -40 && lightbox.index < carousel.slides.length - 1) lightboxGoTo(lightbox.index + 1);
+    else if (dx > 40 && lightbox.index > 0) lightboxGoTo(lightbox.index - 1);
+  }, { passive: true });
+
   let touchStartX = 0;
   dom.carouselTrack.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
   dom.carouselTrack.addEventListener('touchend', e => {
@@ -757,7 +828,16 @@ function initEvents() {
   });
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeSettings();
+    if (e.key === 'Escape') {
+      if (!dom.lightbox.classList.contains('hidden')) closeLightbox();
+      else closeSettings();
+    }
+    if (e.key === 'ArrowLeft' && !dom.lightbox.classList.contains('hidden')) {
+      if (lightbox.index > 0) lightboxGoTo(lightbox.index - 1);
+    }
+    if (e.key === 'ArrowRight' && !dom.lightbox.classList.contains('hidden')) {
+      if (lightbox.index < carousel.slides.length - 1) lightboxGoTo(lightbox.index + 1);
+    }
   });
 }
 
