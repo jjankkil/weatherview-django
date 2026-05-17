@@ -1,3 +1,4 @@
-django
-requests
-python-dateutil
+Django==6.0.5
+requests==2.34.1
+python-dateutil==2.9.0.post0
+gunicorn==26.0.0
