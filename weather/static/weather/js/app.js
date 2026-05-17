@@ -279,7 +279,8 @@ function buildCarousel(presets, ts) {
 
 function lightboxGoTo(i) {
   lightbox.index = i;
-  dom.lightboxTrack.style.transform = `translateX(-${i * 100}vw)`;
+  const unit = dom.lightbox.classList.contains('is-fullscreen') ? '%' : 'vw';
+  dom.lightboxTrack.style.transform = `translateX(-${i * 100}${unit})`;
   dom.lightboxPrev.disabled = i === 0;
   dom.lightboxNext.disabled = i === carousel.slides.length - 1;
 }
@@ -310,6 +311,7 @@ function openLightbox(startIndex) {
 }
 
 function closeLightbox() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   dom.lightbox.classList.add('hidden');
   document.body.style.overflow = '';
 }
@@ -431,7 +433,8 @@ const dom = {
   carouselPrev:   $('carousel-prev'),
   carouselNext:   $('carousel-next'),
   lightbox:       $('camera-lightbox'),
-  lightboxClose:  $('lightbox-close'),
+  lightboxClose:      $('lightbox-close'),
+  lightboxFullscreen: $('lightbox-fullscreen'),
   lightboxTrack:  $('lightbox-track'),
   lightboxPrev:   $('lightbox-prev'),
   lightboxNext:   $('lightbox-next'),
@@ -794,6 +797,31 @@ function initEvents() {
   dom.lightboxClose.addEventListener('click', closeLightbox);
   dom.lightbox.addEventListener('click', e => {
     if (e.target === dom.lightbox) closeLightbox();
+  });
+  dom.lightboxFullscreen.addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      dom.lightbox.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const isFs = !!document.fullscreenElement;
+    dom.lightboxFullscreen.innerHTML = isFs ? '&#x2715;' : '&#x26F6;';
+    dom.lightboxFullscreen.setAttribute('aria-label', isFs ? 'Exit fullscreen' : 'Toggle fullscreen');
+    dom.lightbox.classList.toggle('is-fullscreen', isFs);
+    if (isFs) {
+      const w = screen.width;
+      const h = screen.height;
+      dom.lightboxTrack.style.setProperty('--fs-w', `${w}px`);
+      dom.lightboxTrack.style.setProperty('--fs-h', `${h}px`);
+      dom.lightbox.style.setProperty('--fs-w', `${w}px`);
+      dom.lightbox.style.setProperty('--fs-h', `${h}px`);
+    } else {
+      dom.lightbox.style.removeProperty('--fs-w');
+      dom.lightbox.style.removeProperty('--fs-h');
+    }
+    lightboxGoTo(lightbox.index);
   });
   dom.lightboxPrev.addEventListener('click', () => {
     if (lightbox.index > 0) lightboxGoTo(lightbox.index - 1);
