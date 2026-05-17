@@ -4,7 +4,7 @@
 const LABELS = {
   fi: {
     appTitle: 'Tiesää',
-    stationLabel: 'Asema:',
+    stationLabel: 'Sääasema:',
     obsTime: 'Havaintoaika:',
     temperature: 'Lämpötila:',
     feelsLike: 'Tuntuu kuin:',
@@ -26,10 +26,13 @@ const LABELS = {
     save: 'Tallenna',
     cancel: 'Peruuta',
     langToggle: 'EN',
+    stationSearch: 'Etsi sääasema',
+    stationSearchPlaceholder: 'Kirjoita aseman nimi…',
+    stationNoResults: 'Ei tuloksia',
   },
   en: {
     appTitle: 'Road Weather',
-    stationLabel: 'Station:',
+    stationLabel: 'Weather station:',
     obsTime: 'Observation time:',
     temperature: 'Temperature:',
     feelsLike: 'Feels like:',
@@ -51,6 +54,9 @@ const LABELS = {
     save: 'Save',
     cancel: 'Cancel',
     langToggle: 'FI',
+    stationSearch: 'Search weather station',
+    stationSearchPlaceholder: 'Type station name…',
+    stationNoResults: 'No results',
   },
 };
 
@@ -416,6 +422,12 @@ const dom = {
   nextUpdateLabel:$('next-update-label'),
   langToggle:     $('lang-toggle'),
   settingsBtn:    $('settings-btn'),
+  stationSearchBtn:     $('station-search-btn'),
+  stationSearchModal:   $('station-search-modal'),
+  stationSearchTitle:   $('station-search-title'),
+  stationSearchInput:   $('station-search-input'),
+  stationSearchResults: $('station-search-results'),
+  stationSearchClose:   $('station-search-close'),
   settingsModal:  $('settings-modal'),
   settingsTitle:  $('settings-modal-title'),
   apiKeyInput:    $('api-key-input'),
@@ -507,6 +519,7 @@ function applyLabels() {
   setText(dom.visibilityLabel, L.visibility);
   setText(dom.forecastTitle, L.forecastTitle);
   setText(dom.refreshLabel, L.refresh);
+  dom.stationSearchBtn.title = L.stationSearch;
   dom.langToggle.title = `Switch to ${L.langToggle}`;
   dom.langToggle.textContent = L.langToggle;
   if (dom.apiKeyLabel) setText(dom.apiKeyLabel, L.apiKeyLabel);
@@ -708,11 +721,6 @@ function populateStations(stations) {
   state.stations = stations;
   dom.stationSelect.innerHTML = '';
 
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = `— ${labels().stationLabel.replace(':', '')} —`;
-  dom.stationSelect.appendChild(placeholder);
-
   // MRU section
   const mruIds = loadMru();
   const byId = new Map(stations.map(s => [s.id, s]));
@@ -753,6 +761,70 @@ function populateStations(stations) {
       dom.stationSelect.appendChild(opt);
     }
   }
+}
+
+// ── Station search modal ─────────────────────────────────────
+function openStationSearch() {
+  const L = labels();
+  dom.stationSearchTitle.textContent = L.stationSearch;
+  dom.stationSearchInput.placeholder = L.stationSearchPlaceholder;
+  dom.stationSearchInput.value = '';
+  renderStationSearchResults();
+  dom.stationSearchModal.classList.remove('hidden');
+  dom.stationSearchInput.focus();
+}
+
+function closeStationSearch() {
+  dom.stationSearchModal.classList.add('hidden');
+}
+
+function renderStationSearchResults() {
+  const query = dom.stationSearchInput.value.trim().toLowerCase();
+  const L = labels();
+  dom.stationSearchResults.innerHTML = '';
+
+  const matches = query
+    ? state.stations.filter(s => s.formatted_name.toLowerCase().includes(query))
+    : state.stations;
+
+  if (matches.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'search-no-results';
+    li.textContent = L.stationNoResults;
+    dom.stationSearchResults.appendChild(li);
+    return;
+  }
+
+  for (const s of matches) {
+    const li = document.createElement('li');
+    li.tabIndex = 0;
+    if (query) {
+      const idx = s.formatted_name.toLowerCase().indexOf(query);
+      li.innerHTML =
+        escapeHtml(s.formatted_name.slice(0, idx)) +
+        `<mark>${escapeHtml(s.formatted_name.slice(idx, idx + query.length))}</mark>` +
+        escapeHtml(s.formatted_name.slice(idx + query.length));
+    } else {
+      li.textContent = s.formatted_name;
+    }
+    const select = () => {
+      selectStation(s.id, s.formatted_name);
+      closeStationSearch();
+    };
+    li.addEventListener('click', select);
+    li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') select(); });
+    dom.stationSearchResults.appendChild(li);
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function selectStation(id, name) {
+  state.currentStationId = id;
+  saveSettings({ current_station_id: id, current_station_name: name });
+  fetchWeather(id);
 }
 
 // ── Event listeners ──────────────────────────────────────────
@@ -846,6 +918,13 @@ function initEvents() {
     else if (dx > 40 && carousel.index > 0) carouselGoTo(carousel.index - 1);
   }, { passive: true });
 
+  dom.stationSearchBtn.addEventListener('click', openStationSearch);
+  dom.stationSearchClose.addEventListener('click', closeStationSearch);
+  dom.stationSearchModal.addEventListener('click', e => {
+    if (e.target === dom.stationSearchModal) closeStationSearch();
+  });
+  dom.stationSearchInput.addEventListener('input', renderStationSearchResults);
+
   dom.settingsBtn.addEventListener('click', openSettings);
   dom.settingsClose.addEventListener('click', closeSettings);
   dom.settingsCancel.addEventListener('click', closeSettings);
@@ -858,6 +937,7 @@ function initEvents() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if (!dom.lightbox.classList.contains('hidden')) closeLightbox();
+      else if (!dom.stationSearchModal.classList.contains('hidden')) closeStationSearch();
       else closeSettings();
     }
     if (e.key === 'ArrowLeft' && !dom.lightbox.classList.contains('hidden')) {

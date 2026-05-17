@@ -388,6 +388,14 @@ flowchart TD
     M --> F
     N([User toggles 🌐 / ⚙️]) --> O[POST /api/settings/save/]
     O --> F
+    P([User clicks 🔍]) --> Q[Open station search modal]
+    Q --> R{User selects result}
+    R -->|station chosen| L
+    R -->|dismissed| G
+    S([User clicks camera image]) --> T[Open lightbox]
+    T --> U[Navigate prev/next or toggle fullscreen]
+    U --> V[Close lightbox]
+    V --> H
 ```
 
 ---
@@ -396,16 +404,29 @@ flowchart TD
 
 The frontend displays weather camera images for each station. Camera URLs are fetched from the Digitraffic API alongside observation data.
 
-The UI:
+### 9.1 Camera carousel
 
 - Renders camera images in a carousel/gallery layout below the observation card
 - Automatically scales images responsively on different screen sizes
 - Refreshes camera images on the same cadence as observation data
 
+### 9.2 Lightbox
+
+Clicking any camera image opens a fullscreen-capable lightbox:
+
+- **Navigation** — prev/next buttons, left/right arrow keys, or touch swipe (threshold: 40 px)
+- **Direction label** — each slide shows the camera's `presentationName` (e.g. "Pohjoinen") as an overlay
+- **Fullscreen** — the ⛶ button calls `element.requestFullscreen()`; the `fullscreenchange` event updates layout variables (`--fs-w`, `--fs-h`) so slides fill the screen correctly
+- **Dismiss** — Escape key, close button, or clicking outside the slide
+
+### 9.3 Station search modal
+
+A 🔍 search button next to the station dropdown opens a modal with a text input. Typing filters the full station list client-side (case-insensitive substring match on formatted name). Selecting a result closes the modal and triggers the same station-selection flow as the dropdown (POST settings, update MRU, fetch observations).
+
 Related code:
 
-- [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — camera image loading and carousel logic
-- [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) — camera gallery styling
+- [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — camera loading, carousel, lightbox, and station search logic
+- [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) — camera gallery, lightbox, and modal styling
 - [weather/views.py](../weather/views.py) — includes camera data in API response
 
 ---

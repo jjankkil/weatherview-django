@@ -1,188 +1,282 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fi">
-{% load static %}
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tiesää – Road Weather</title>
-  <link rel="stylesheet" href="{% static 'weather/css/style.css' %}" />
-</head>
-<body>
-  <div id="app">
-
-    <!-- Header -->
-    <header class="app-header">
-      <div class="header-title">
-        <span class="header-icon">🛣️</span>
-        <h1 id="app-title">Tiesää</h1>
-      </div>
-      <div class="header-controls">
-        <button id="lang-toggle" class="btn-icon" title="Toggle language">🌐</button>
-        <button id="settings-btn" class="btn-icon" title="Settings">⚙️</button>
-      </div>
-    </header>
-
-    <!-- Station selector -->
-    <section class="station-section">
-      <label id="station-label" for="station-select">Asema:</label>
-      <select id="station-select" class="station-select">
-        <option value="">— Ladataan asemia… —</option>
-      </select>
-    </section>
-
-    <!-- Error banner -->
-    <div id="error-banner" class="error-banner hidden"></div>
-
-    <!-- Content layout: weather + camera side by side on wide screens -->
-    <div class="content-layout">
-
-    <!-- Main weather card -->
-    <main id="weather-card" class="weather-card hidden">
-
-      <!-- Observation time -->
-      <div class="obs-time-row">
-        <span id="obs-time-label" class="field-label">Havaintoaika:</span>
-        <span id="obs-time-value" class="field-value"></span>
-      </div>
-
-      <!-- Current weather symbol (OWM) -->
-      <div id="symbol-row" class="symbol-row hidden">
-        <span id="current-symbol" class="symbol-large"></span>
-      </div>
-
-      <!-- Data grid -->
-      <div class="data-grid">
-
-        <div class="data-row">
-          <span id="temp-label" class="field-label">Lämpötila:</span>
-          <span id="temp-value" class="field-value field-value--large"></span>
+  {% load static %}
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tiesää – Road Weather</title>
+    <link rel="stylesheet" href="{% static 'weather/css/style.css' %}" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="header-title">
+          <span class="header-icon">🛣️</span>
+          <h1 id="app-title">Tiesää</h1>
         </div>
-
-        <div class="data-row" id="feels-row">
-          <span id="feels-label" class="field-label">Tuntuu kuin:</span>
-          <span id="feels-value" class="field-value"></span>
+        <div class="header-controls">
+          <button id="lang-toggle" class="btn-icon" title="Toggle language">
+            🌐
+          </button>
+          <button id="settings-btn" class="btn-icon" title="Settings">
+            ⚙️
+          </button>
         </div>
+      </header>
 
-        <div class="data-row" id="temp-change-row">
-          <span id="temp-change-label" class="field-label">Lämpötilan muutos:</span>
-          <span id="temp-change-value" class="field-value"></span>
+      <!-- Station selector -->
+      <section class="station-section">
+        <label id="station-label" for="station-select">Sääasema:</label>
+        <div class="station-row">
+          <select id="station-select" class="station-select">
+            <option value="">— Ladataan asemia… —</option>
+          </select>
+          <button
+            id="station-search-btn"
+            class="btn-icon station-search-btn"
+            title="Hae asema"
+          >
+            🔍
+          </button>
         </div>
+      </section>
 
-        <div class="data-row">
-          <span id="wind-label" class="field-label">Tuulen nopeus (ka.):</span>
-          <span id="wind-value" class="field-value"></span>
+      <!-- Station search modal -->
+      <div
+        id="station-search-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="station-search-title"
+      >
+        <div class="modal-backdrop"></div>
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <h2 id="station-search-title">Hae asema</h2>
+            <button id="station-search-close" class="btn-icon modal-close">
+              ✕
+            </button>
+          </div>
+          <div class="modal-body">
+            <input
+              id="station-search-input"
+              type="search"
+              class="station-search-input"
+              placeholder="Kirjoita aseman nimi…"
+              autocomplete="off"
+              autocorrect="off"
+              spellcheck="false"
+            />
+            <ul id="station-search-results" class="station-search-results"></ul>
+          </div>
         </div>
-
-        <div class="data-row" id="wind-dir-row">
-          <span id="wind-dir-label" class="field-label">Tuulen suunta:</span>
-          <span id="wind-dir-value" class="field-value"></span>
-        </div>
-
-        <div class="data-row">
-          <span id="wind-max-label" class="field-label">Maksimituuli:</span>
-          <span id="wind-max-value" class="field-value"></span>
-        </div>
-
-        <div class="data-row" id="humidity-row">
-          <span id="humidity-label" class="field-label">Ilman kosteus:</span>
-          <span id="humidity-value" class="field-value"></span>
-        </div>
-
-        <div class="data-row" id="visibility-row">
-          <span id="visibility-label" class="field-label">Näkyvyys:</span>
-          <span id="visibility-value" class="field-value"></span>
-        </div>
-
-        <div class="data-row" id="pw-row">
-          <span id="pw-label" class="field-label">Säätila:</span>
-          <span id="pw-value" class="field-value"></span>
-        </div>
-
-      </div><!-- .data-grid -->
-
-      <!-- Forecast -->
-      <div id="forecast-section" class="forecast-section hidden">
-        <h2 id="forecast-title" class="forecast-title">Ennuste</h2>
-        <div id="forecast-items" class="forecast-items"></div>
       </div>
 
-    </main><!-- .weather-card -->
+      <!-- Error banner -->
+      <div id="error-banner" class="error-banner hidden"></div>
 
-    <!-- Camera panel -->
-    <aside id="camera-panel" class="camera-panel hidden">
-      <div class="camera-header">
-        <span id="camera-title" class="camera-title"></span>
-        <span id="camera-distance" class="camera-distance"></span>
+      <!-- Content layout: weather + camera side by side on wide screens -->
+      <div class="content-layout">
+        <!-- Main weather card -->
+        <main id="weather-card" class="weather-card hidden">
+          <!-- Observation time -->
+          <div class="obs-time-row">
+            <span id="obs-time-label" class="field-label">Havaintoaika:</span>
+            <span id="obs-time-value" class="field-value"></span>
+          </div>
+
+          <!-- Current weather symbol (OWM) -->
+          <div id="symbol-row" class="symbol-row hidden">
+            <span id="current-symbol" class="symbol-large"></span>
+          </div>
+
+          <!-- Data grid -->
+          <div class="data-grid">
+            <div class="data-row">
+              <span id="temp-label" class="field-label">Lämpötila:</span>
+              <span
+                id="temp-value"
+                class="field-value field-value--large"
+              ></span>
+            </div>
+
+            <div class="data-row" id="feels-row">
+              <span id="feels-label" class="field-label">Tuntuu kuin:</span>
+              <span id="feels-value" class="field-value"></span>
+            </div>
+
+            <div class="data-row" id="temp-change-row">
+              <span id="temp-change-label" class="field-label"
+                >Lämpötilan muutos:</span
+              >
+              <span id="temp-change-value" class="field-value"></span>
+            </div>
+
+            <div class="data-row">
+              <span id="wind-label" class="field-label"
+                >Tuulen nopeus (ka.):</span
+              >
+              <span id="wind-value" class="field-value"></span>
+            </div>
+
+            <div class="data-row" id="wind-dir-row">
+              <span id="wind-dir-label" class="field-label"
+                >Tuulen suunta:</span
+              >
+              <span id="wind-dir-value" class="field-value"></span>
+            </div>
+
+            <div class="data-row">
+              <span id="wind-max-label" class="field-label">Maksimituuli:</span>
+              <span id="wind-max-value" class="field-value"></span>
+            </div>
+
+            <div class="data-row" id="humidity-row">
+              <span id="humidity-label" class="field-label"
+                >Ilman kosteus:</span
+              >
+              <span id="humidity-value" class="field-value"></span>
+            </div>
+
+            <div class="data-row" id="visibility-row">
+              <span id="visibility-label" class="field-label">Näkyvyys:</span>
+              <span id="visibility-value" class="field-value"></span>
+            </div>
+
+            <div class="data-row" id="pw-row">
+              <span id="pw-label" class="field-label">Säätila:</span>
+              <span id="pw-value" class="field-value"></span>
+            </div>
+          </div>
+          <!-- .data-grid -->
+
+          <!-- Forecast -->
+          <div id="forecast-section" class="forecast-section hidden">
+            <h2 id="forecast-title" class="forecast-title">Ennuste</h2>
+            <div id="forecast-items" class="forecast-items"></div>
+          </div>
+        </main>
+        <!-- .weather-card -->
+
+        <!-- Camera panel -->
+        <aside id="camera-panel" class="camera-panel hidden">
+          <div class="camera-header">
+            <span id="camera-title" class="camera-title"></span>
+            <span id="camera-distance" class="camera-distance"></span>
+          </div>
+          <div class="carousel">
+            <button
+              class="carousel-btn carousel-btn--prev"
+              id="carousel-prev"
+              aria-label="Previous"
+            >
+              &#8249;
+            </button>
+            <div class="carousel-track-wrap">
+              <div class="carousel-track" id="carousel-track"></div>
+            </div>
+            <button
+              class="carousel-btn carousel-btn--next"
+              id="carousel-next"
+              aria-label="Next"
+            >
+              &#8250;
+            </button>
+          </div>
+          <div id="camera-updated" class="camera-updated"></div>
+        </aside>
       </div>
-      <div class="carousel">
-        <button class="carousel-btn carousel-btn--prev" id="carousel-prev" aria-label="Previous">&#8249;</button>
-        <div class="carousel-track-wrap">
-          <div class="carousel-track" id="carousel-track"></div>
+      <!-- .content-layout -->
+
+      <!-- Camera lightbox -->
+      <div
+        id="camera-lightbox"
+        class="camera-lightbox hidden"
+        role="dialog"
+        aria-modal="true"
+      >
+        <button id="lightbox-close" class="lightbox-close" aria-label="Close">
+          &#10005;
+        </button>
+        <button
+          id="lightbox-fullscreen"
+          class="lightbox-fullscreen"
+          aria-label="Toggle fullscreen"
+        >
+          &#x26F6;
+        </button>
+        <button
+          class="lightbox-nav lightbox-nav--prev"
+          id="lightbox-prev"
+          aria-label="Previous"
+        >
+          &#8249;
+        </button>
+        <div class="lightbox-track-wrap">
+          <div class="lightbox-track" id="lightbox-track"></div>
         </div>
-        <button class="carousel-btn carousel-btn--next" id="carousel-next" aria-label="Next">&#8250;</button>
+        <button
+          class="lightbox-nav lightbox-nav--next"
+          id="lightbox-next"
+          aria-label="Next"
+        >
+          &#8250;
+        </button>
       </div>
-      <div id="camera-updated" class="camera-updated"></div>
-    </aside>
 
-    </div><!-- .content-layout -->
+      <!-- Footer / update controls -->
+      <footer class="app-footer">
+        <button id="refresh-btn" class="btn-refresh">
+          <span id="refresh-label">Päivitä nyt</span>
+        </button>
+        <span id="next-update-label" class="next-update"></span>
+      </footer>
+    </div>
+    <!-- #app -->
 
-    <!-- Camera lightbox -->
-    <div id="camera-lightbox" class="camera-lightbox hidden" role="dialog" aria-modal="true">
-      <button id="lightbox-close" class="lightbox-close" aria-label="Close">&#10005;</button>
-      <button id="lightbox-fullscreen" class="lightbox-fullscreen" aria-label="Toggle fullscreen">&#x26F6;</button>
-      <button class="lightbox-nav lightbox-nav--prev" id="lightbox-prev" aria-label="Previous">&#8249;</button>
-      <div class="lightbox-track-wrap">
-        <div class="lightbox-track" id="lightbox-track"></div>
+    <!-- Settings modal -->
+    <div
+      id="settings-modal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-modal-title"
+    >
+      <div class="modal-backdrop"></div>
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h2 id="settings-modal-title">Asetukset</h2>
+          <button id="settings-close" class="btn-icon modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <label for="api-key-input">OpenWeatherMap API-avain:</label>
+          <input
+            id="api-key-input"
+            type="text"
+            class="api-key-input"
+            placeholder="Syötä API-avain (valinnainen)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="settings-hint">
+            API-avain tarvitaan säätilan symbolien ja ennusteen näyttämiseen.
+            Rekisteröidy ilmaiseksi osoitteessa openweathermap.org.
+          </p>
+
+          <div class="camera-setting">
+            <label for="camera-toggle">Näytä kelikameroiden kuvat:</label>
+            <input id="camera-toggle" type="checkbox" checked />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="settings-save" class="btn-primary">Tallenna</button>
+          <button id="settings-cancel" class="btn-secondary">Peruuta</button>
+        </div>
       </div>
-      <button class="lightbox-nav lightbox-nav--next" id="lightbox-next" aria-label="Next">&#8250;</button>
     </div>
 
-    <!-- Footer / update controls -->
-    <footer class="app-footer">
-      <button id="refresh-btn" class="btn-refresh">
-        <span id="refresh-label">Päivitä nyt</span>
-      </button>
-      <span id="next-update-label" class="next-update"></span>
-    </footer>
-
-  </div><!-- #app -->
-
-  <!-- Settings modal -->
-  <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
-    <div class="modal-backdrop"></div>
-    <div class="modal-dialog">
-      <div class="modal-header">
-        <h2 id="settings-modal-title">Asetukset</h2>
-        <button id="settings-close" class="btn-icon modal-close">✕</button>
-      </div>
-      <div class="modal-body">
-        <label for="api-key-input">OpenWeatherMap API-avain:</label>
-        <input
-          id="api-key-input"
-          type="text"
-          class="api-key-input"
-          placeholder="Syötä API-avain (valinnainen)"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <p class="settings-hint">
-          API-avain tarvitaan säätilan symbolien ja ennusteen näyttämiseen.
-          Rekisteröidy ilmaiseksi osoitteessa openweathermap.org.
-        </p>
-
-        <div class="camera-setting">
-          <label for="camera-toggle">Näytä kelikameroiden kuvat:</label>
-          <input id="camera-toggle" type="checkbox" checked />
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button id="settings-save" class="btn-primary">Tallenna</button>
-        <button id="settings-cancel" class="btn-secondary">Peruuta</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="{% static 'weather/js/constants.js' %}"></script>
-  <script src="{% static 'weather/js/app.js' %}"></script>
-</body>
+    <script src="{% static 'weather/js/constants.js' %}"></script>
+    <script src="{% static 'weather/js/app.js' %}"></script>
+  </body>
 </html>
