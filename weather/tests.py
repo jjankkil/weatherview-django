@@ -344,4 +344,4 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(len(data["forecast"]), 1)
         self.assertEqual(data["forecast"][0]["time"], "15:00")
         self.assertEqual(data["forecast"][0]["symbol"], "☀")
-        self.assertEqual(data["forecast"][0]["temperature"], "10.0 °C")
+        self.assertEqual(data["forecast"][0]["temperature"], "10 °C")

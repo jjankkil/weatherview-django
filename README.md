@@ -82,7 +82,7 @@ For a detailed technical architecture including component diagrams, sequence dia
 
 ### Directory structure
 
-```
+```text
 weatherview-django/
 ├── manage.py
 ├── requirements.txt

@@ -218,7 +218,7 @@ class WeatherService:
                 dt_txt = item.get("dt_txt", "")
                 time_part = dt_txt[11:16] if len(dt_txt) >= 16 else ""
                 temp_k = item.get("main", {}).get("temp", 0)
-                temp_c = round(temp_k - 273.15, 1)
+                temp_c = round(temp_k - 273.15)
                 weather_id = item.get("weather", [{}])[0].get("id", 0)
                 forecasts.append({
                     "time": time_part,
