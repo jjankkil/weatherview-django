@@ -64,14 +64,14 @@ The key is stored in the browser session (signed cookie). It is never persisted 
 
 ## Usage
 
-| Element                  | What it does                                                                                                      |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| Station dropdown         | Pick any station. Most-recently-used 5 are grouped at the top.                                                    |
-| 🔍 Search button         | Open a search modal — type any part of a station name to filter and select it.                                    |
-| 🌐 Top-right button      | Toggle between Finnish and English labels.                                                                        |
-| ⚙️ Top-right button      | Open settings (OpenWeatherMap API key).                                                                           |
-| **Päivitä nyt** button   | Force an immediate refresh.                                                                                       |
-| _Seuraava päivitys: N s_ | Countdown to the next automatic refresh.                                                                          |
+| Element                  | What it does                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Station dropdown         | Pick any station. Most-recently-used 5 are grouped at the top.                                                  |
+| 🔍 Search button         | Open a search modal — type any part of a station name to filter and select it.                                  |
+| 🌐 Top-right button      | Toggle between Finnish and English labels.                                                                      |
+| ⚙️ Top-right button      | Open settings (OpenWeatherMap API key).                                                                         |
+| **Päivitä nyt** button   | Force an immediate refresh.                                                                                     |
+| _Seuraava päivitys: N s_ | Countdown to the next automatic refresh.                                                                        |
 | Camera image             | Click to open a lightbox. Navigate with ←/→ buttons, arrow keys, or swipe. Toggle fullscreen with the ⛶ button. |
 
 ---

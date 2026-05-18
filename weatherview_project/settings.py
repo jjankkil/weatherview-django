@@ -1,21 +1,39 @@
+## @file settings.py
+#  @brief Django settings for the weatherview_project application.
+#
+#  All runtime-sensitive values are read from environment variables so that
+#  no secrets need to be committed to the repository.  The required variable
+#  is `WVD_SECRET_KEY`; optional variables and their defaults are listed below.
+#
+#  | Variable | Default | Purpose |
+#  |---|---|---|
+#  | WVD_SECRET_KEY | *(required)* | Django cryptographic secret key |
+#  | WVD_DEBUG | `False` | Enable Django debug mode |
+#  | WVD_ALLOWED_HOSTS | `*,localhost,127.0.0.1` | Comma-separated allowed host list |
+#  | WVD_SESSION_COOKIE_AGE | `1209600` (14 days) | Session lifetime in seconds |
+#  | WVD_SECURE_HSTS_SECONDS | `31536000` (prod) / `0` (debug) | HSTS max-age |
+#
+#  @author Jari Jankkila
+#  @date 2026
+
 import os
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent  ##< Absolute path to the repository root.
 
-SECRET_KEY = os.environ["WVD_SECRET_KEY"]
+SECRET_KEY = os.environ["WVD_SECRET_KEY"]  ##< Django cryptographic secret key. Set via WVD_SECRET_KEY env var (required).
 
-DEBUG = os.getenv("WVD_DEBUG", "False") == "True"
+DEBUG = os.getenv("WVD_DEBUG", "False") == "True"  ##< Enable Django debug mode. Set WVD_DEBUG=True to activate.
 
-ALLOWED_HOSTS = os.getenv("WVD_ALLOWED_HOSTS", "*,localhost,127.0.0.1").split(",")
+ALLOWED_HOSTS = os.getenv("WVD_ALLOWED_HOSTS", "*,localhost,127.0.0.1").split(",")  ##< Comma-separated list of allowed hostnames. Set via WVD_ALLOWED_HOSTS.
 
-INSTALLED_APPS = [
+INSTALLED_APPS = [  ##< Django applications enabled for this project.
     "django.contrib.sessions",
     "django.contrib.staticfiles",
     "weather",
 ]
 
-MIDDLEWARE = [
+MIDDLEWARE = [  ##< Ordered list of Django middleware classes.
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -23,9 +41,9 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "weatherview_project.urls"
+ROOT_URLCONF = "weatherview_project.urls"  ##< Python module path to the root URL configuration.
 
-TEMPLATES = [
+TEMPLATES = [  ##< Django template engine configuration.
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [],
@@ -38,44 +56,44 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "weatherview_project.wsgi.application"
+WSGI_APPLICATION = "weatherview_project.wsgi.application"  ##< WSGI application callable path.
 
 # No database needed — sessions stored in signed cookies
-SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
+SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"  ##< Use signed cookies for sessions; no database required.
 
-SESSION_COOKIE_AGE = int(os.getenv("WVD_SESSION_COOKIE_AGE", str(60 * 60 * 24 * 14)))
-SESSION_COOKIE_SECURE = not DEBUG
-SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_AGE = int(os.getenv("WVD_SESSION_COOKIE_AGE", str(60 * 60 * 24 * 14)))  ##< Session lifetime in seconds (default 14 days). Set via WVD_SESSION_COOKIE_AGE.
+SESSION_COOKIE_SECURE = not DEBUG  ##< Transmit session cookie over HTTPS only (disabled in debug mode).
+SESSION_COOKIE_HTTPONLY = True  ##< Prevent JavaScript access to the session cookie.
 
-CSRF_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SECURE = not DEBUG  ##< Transmit CSRF cookie over HTTPS only (disabled in debug mode).
+CSRF_COOKIE_HTTPONLY = True  ##< Prevent JavaScript access to the CSRF cookie.
 
-SECURE_SSL_REDIRECT = not DEBUG
-SECURE_HSTS_SECONDS = int(
+SECURE_SSL_REDIRECT = not DEBUG  ##< Redirect all HTTP requests to HTTPS in production.
+SECURE_HSTS_SECONDS = int(  ##< HSTS max-age in seconds. Set WVD_SECURE_HSTS_SECONDS to override; defaults to 1 year in production.
     os.getenv("WVD_SECURE_HSTS_SECONDS", "0" if DEBUG else "31536000")
 )
-SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
-SECURE_HSTS_PRELOAD = not DEBUG
-SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG  ##< Apply HSTS policy to all subdomains in production.
+SECURE_HSTS_PRELOAD = not DEBUG  ##< Opt into HSTS preload list in production.
+SECURE_CONTENT_TYPE_NOSNIFF = True  ##< Prevent MIME-type sniffing by the browser.
 
-CACHES = {
+CACHES = {  ##< In-process memory cache shared within one worker; station list TTL is 5 minutes.
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "TIMEOUT": 300,  # station list cached for 5 minutes
     }
 }
 
-LANGUAGE_CODE = "fi"
-TIME_ZONE = "Europe/Helsinki"
-USE_I18N = False
-USE_TZ = True
+LANGUAGE_CODE = "fi"  ##< Default language code (Finnish).
+TIME_ZONE = "Europe/Helsinki"  ##< Default time zone for the application.
+USE_I18N = False  ##< Disable Django's translation framework (not needed for this project).
+USE_TZ = True  ##< Store datetimes as timezone-aware values.
 
-STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_URL = "/static/"  ##< URL prefix for static assets.
+STATIC_ROOT = BASE_DIR / "staticfiles"  ##< Filesystem path where `collectstatic` copies files.
 
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"  ##< Default primary key type for models.
 
-LOGGING = {
+LOGGING = {  ##< Logging configuration: WARNING+ to stderr console.
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {

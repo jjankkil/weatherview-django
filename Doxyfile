@@ -144,7 +144,7 @@ EXAMPLE_PATH           =
 EXAMPLE_PATTERNS       = *
 EXAMPLE_RECURSIVE      = NO
 
-IMAGE_PATH             =
+IMAGE_PATH             = ./docs
 
 INPUT_FILTER           =
 

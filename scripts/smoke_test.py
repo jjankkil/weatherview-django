@@ -31,6 +31,18 @@ from weather.services.ui_helpers import get_station_city  # noqa: E402
 
 
 def run_checks(station_id: int | None, api_key: str) -> int:
+    """@brief Execute live smoke tests against Digitraffic and OpenWeatherMap.
+
+    Fetches the station list, queries observation data for *station_id* (or the
+    first alphabetical station if `None`), and — when *api_key* is provided —
+    also exercises the OpenWeatherMap city-weather and forecast paths.
+
+    @param station_id  Digitraffic station id to query, or `None` to use the
+                       first station returned by the API.
+    @param api_key     OpenWeatherMap API key.  Pass an empty string to skip
+                       the forecast/symbol checks.
+    @return 0 on success, 1 on any error.
+    """
     print("== weatherview-django smoke test ==")
     service = WeatherService()
 
@@ -100,6 +112,10 @@ def run_checks(station_id: int | None, api_key: str) -> int:
 
 
 def main() -> int:
+    """@brief Parse CLI arguments and delegate to run_checks().
+
+    @return Exit code forwarded from run_checks() (0 = success, 1 = failure).
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "station_id",
