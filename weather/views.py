@@ -9,6 +9,7 @@ Views handle caching of station lists, weather service requests, and session-bas
 """
 
 import json
+import math
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
@@ -52,6 +53,7 @@ _DEFAULT_SETTINGS = {  #!< Default settings applied to all sessions
     "openweathermap_api_key": "",  #!< OpenWeatherMap API key for additional weather data
     "language": "fi",  #!< Display language ("fi" for Finnish, "en" for English)
     "show_camera": True,  #!< Whether to display weather camera images (default: enabled)
+    "follow_location": False,  #!< Whether to always use geolocation to select the nearest station
 }
 
 
@@ -177,6 +179,7 @@ def api_settings_get(request):
             - openweathermap_api_key: API key for OpenWeatherMap (empty if not set)
             - language: Display language code ("fi" or "en")
             - show_camera: Whether to display camera images (boolean)
+            - follow_location: Whether to always use geolocation to select the nearest station (boolean)
     @details
     - HTTP method: GET only
     - Returns merged defaults + session values
@@ -184,6 +187,49 @@ def api_settings_get(request):
     - No authentication required; uses Django session
     """
     return JsonResponse(_get_settings(request))
+
+
+@require_http_methods(["GET"])
+def api_nearest_station(request):
+    """Return the station closest to the given WGS84 coordinates.
+
+    Used by the frontend geolocation feature to select the nearest station
+    automatically when the user enables "Use my location" in settings or on
+    first visit with no saved station.
+
+    @param request Django request with query params:
+                   - lat: WGS84 latitude in decimal degrees (required)
+                   - lon: WGS84 longitude in decimal degrees (required)
+    @return JsonResponse:
+            - On success (200): station dict with keys id, name, formatted_name, lat, lon
+            - On missing/invalid params (400): {"error": "..."}
+            - On empty station list (503): {"error": "No stations available"}
+    @details
+    - HTTP method: GET only
+    - Distance calculated using the haversine formula (great-circle distance)
+    - Station list sourced from the same cache as @ref api_stations
+    - Requires HTTPS (or localhost) in the browser; the Geolocation API that
+      supplies the coordinates is only available in secure contexts
+    """
+    try:
+        lat = float(request.GET['lat'])
+        lon = float(request.GET['lon'])
+    except (KeyError, ValueError):
+        return JsonResponse({"error": "lat and lon query parameters are required"}, status=400)
+
+    station_list = _get_station_list()
+    stations = station_list.get_name_list()
+    if not stations:
+        return JsonResponse({"error": "No stations available"}, status=503)
+
+    def _dist(s):
+        dlat = math.radians(s['lat'] - lat)
+        dlon = math.radians(s['lon'] - lon)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat)) * math.cos(math.radians(s['lat'])) * math.sin(dlon / 2) ** 2
+        return math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    nearest = min(stations, key=_dist)
+    return JsonResponse(nearest)
 
 
 @csrf_exempt
@@ -204,7 +250,7 @@ def api_settings_save(request):
     - Request body: JSON object with setting keys and values
     - CSRF exempt: decorated with @csrf_exempt for SPA/AJAX requests
     - Allowed keys (whitelist): current_station_id, current_station_name,
-      openweathermap_api_key, language, show_camera
+      openweathermap_api_key, language, show_camera, follow_location
     - Partial updates: only provided keys are updated; others retain current values
     - Invalid JSON returns HTTP 400 Bad Request
     - All updates persisted to request.session for the current user
@@ -225,7 +271,7 @@ def api_settings_save(request):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
     settings = _get_settings(request)
-    allowed = {"current_station_id", "current_station_name", "openweathermap_api_key", "language", "show_camera"}
+    allowed = {"current_station_id", "current_station_name", "openweathermap_api_key", "language", "show_camera", "follow_location"}
     for key in allowed:
         if key in body:
             settings[key] = body[key]

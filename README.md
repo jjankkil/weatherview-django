@@ -19,7 +19,8 @@ Pick any of 400+ Finnish road weather stations and see current observations, FMI
 - 🔄 Smart auto-refresh based on each station's observation cadence
 - ⭐ 5-item MRU station list, persisted in browser `localStorage`
 - ⏳ Wait cursor + dimmed card while loading
-- 💾 Session-based settings (API key, current station, language)
+- 📍 Automatic nearest-station selection using the browser Geolocation API (on first visit or when "Use my location" is enabled in Settings)
+- 💾 Session-based settings (API key, current station, language, camera visibility, follow-location)
 - 🚀 In-memory station-list cache (5 min) — no repeated 447-row downloads
 
 No database required. Settings live in signed-cookie sessions; weather data is fetched live on each request.
@@ -69,7 +70,7 @@ The key is stored in the browser session (signed cookie). It is never persisted 
 | Station dropdown         | Pick any station. Most-recently-used 5 are grouped at the top.                                                  |
 | 🔍 Search button         | Open a search modal — type any part of a station name to filter and select it.                                  |
 | 🌐 Top-right button      | Toggle between Finnish and English labels.                                                                      |
-| ⚙️ Top-right button      | Open settings (OpenWeatherMap API key).                                                                         |
+| ⚙️ Top-right button      | Open settings (OpenWeatherMap API key, camera toggle, use-my-location toggle).                                  |
 | **Päivitä nyt** button   | Force an immediate refresh.                                                                                     |
 | _Seuraava päivitys: N s_ | Countdown to the next automatic refresh.                                                                        |
 | Camera image             | Click to open a lightbox. Navigate with ←/→ buttons, arrow keys, or swipe. Toggle fullscreen with the ⛶ button. |
@@ -127,6 +128,7 @@ scripts/
 | GET    | `/api/station/<int:id>/` | Parsed observation + forecast for a station |
 | GET    | `/api/settings/`         | Read session settings                       |
 | POST   | `/api/settings/save/`    | Save session settings                       |
+| GET    | `/api/nearest-station/`  | Nearest station to `?lat=…&lon=…`           |
 
 ### Stack
 
@@ -165,7 +167,7 @@ This generates HTML documentation in `docs/doxygen/html/`. Open `docs/doxygen/ht
 
 Two test surfaces ship with the project:
 
-**Offline Django tests** — 17 tests covering helpers, FMI physics, JSON parsing, and all HTTP endpoints (mocked):
+**Offline Django tests** — 20 tests covering helpers, FMI physics, JSON parsing, and all HTTP endpoints (mocked):
 
 ```bash
 python manage.py test weather

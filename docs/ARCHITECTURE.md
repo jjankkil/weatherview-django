@@ -23,6 +23,7 @@ flowchart LR
         UI["index.html + app.js<br/>(vanilla JS SPA)"]
         CONST["constants.js<br/>(UI config)"]
         LS[("localStorage<br/>MRU list")]
+        GEO[("Browser<br/>Geolocation API")]
     end
 
     subgraph Django["Django project: weatherview_project"]
@@ -50,6 +51,7 @@ flowchart LR
     UI <-->|fetch JSON| VIEWS
     UI <-->|fetch JSON| DTCam
     UI <--> LS
+    UI -->|getCurrentPosition| GEO
     URLS --> VIEWS
     VIEWS --> SESSION
     VIEWS --> CACHE
@@ -159,15 +161,16 @@ classDiagram
 
 ## 4. HTTP API (Server Surface)
 
-| Method | Path                     | View                | Purpose                                           |
-| ------ | ------------------------ | ------------------- | ------------------------------------------------- |
-| GET    | `/`                      | `index`             | Serves the SPA shell (`index.html`)               |
-| GET    | `/api/stations/`         | `api_stations`      | Returns the cached, filtered station catalogue    |
-| GET    | `/api/station/<int:id>/` | `api_station_data`  | Parsed observations + optional OWM forecast       |
-| GET    | `/api/settings/`         | `api_settings_get`  | Reads session settings                            |
-| POST   | `/api/settings/save/`    | `api_settings_save` | Writes whitelisted session settings (CSRF-exempt) |
+| Method | Path                     | View                    | Purpose                                           |
+| ------ | ------------------------ | ----------------------- | ------------------------------------------------- |
+| GET    | `/`                      | `index`                 | Serves the SPA shell (`index.html`)               |
+| GET    | `/api/stations/`         | `api_stations`          | Returns the cached, filtered station catalogue    |
+| GET    | `/api/station/<int:id>/` | `api_station_data`      | Parsed observations + optional OWM forecast       |
+| GET    | `/api/settings/`         | `api_settings_get`      | Reads session settings                            |
+| POST   | `/api/settings/save/`    | `api_settings_save`     | Writes whitelisted session settings (CSRF-exempt) |
+| GET    | `/api/nearest-station/`  | `api_nearest_station`   | Returns the station closest to `?lat=…&lon=…`     |
 
-Session settings whitelist: `current_station_id`, `current_station_name`, `openweathermap_api_key`, `language`, `show_camera`. Anything else in the POST body is silently dropped ([views.py:228](../weather/views.py#L228)).
+Session settings whitelist: `current_station_id`, `current_station_name`, `openweathermap_api_key`, `language`, `show_camera`, `follow_location`. Anything else in the POST body is silently dropped ([views.py](../weather/views.py)).
 
 ---
 
@@ -199,7 +202,12 @@ sequenceDiagram
     end
     Django-->>Browser: [{id, name, formatted_name, lat, lon}, ...]
     Browser->>Browser: render dropdown, restore MRU from localStorage
-    Browser->>Django: GET /api/station/<id>/ (current or default)
+    alt follow_location enabled or no saved station
+        Browser->>Browser: navigator.geolocation.getCurrentPosition()
+        Browser->>Django: GET /api/nearest-station/?lat=…&lon=…
+        Django-->>Browser: nearest station dict
+    end
+    Browser->>Django: GET /api/station/<id>/
 ```
 
 ### 5.2 Station observation request (backend)
@@ -322,6 +330,7 @@ flowchart TB
     S1 -.holds.-> K2["language (fi|en)"]
     S1 -.holds.-> K3["current_station_id / _name"]
     S1 -.holds.-> K6["show_camera (boolean)"]
+    S1 -.holds.-> K8["follow_location (boolean)"]
     S2 -.holds.-> K4["parsed WeatherStationList"]
     C1 -.holds.-> K5["recently selected stations"]
     C3 -.holds.-> K7["GeoJSON camera stations<br/>from Digitraffic weathercam API"]
@@ -375,20 +384,27 @@ flowchart TD
     A([Page load]) --> B[GET /api/settings/]
     B --> C[GET /api/stations/]
     C --> D[Populate dropdown<br/>+ MRU group from localStorage]
-    D --> E{Has current<br/>station?}
-    E -->|yes| F[GET /api/station/id]
-    E -->|no| G[Wait for user]
+    D --> E{follow_location<br/>enabled?}
+    E -->|yes| GEO[selectNearestByGeolocation]
+    E -->|no| E2{Has saved<br/>station?}
+    E2 -->|yes| F[GET /api/station/id]
+    E2 -->|no| GEO
+    GEO -->|position obtained| NS[GET /api/nearest-station/]
+    GEO -->|denied / unavailable| F1["Use stations[0]"]
+    NS --> F
+    F1 --> F
     F --> H[Render card,<br/>show countdown]
     H --> I[Load weather camera<br/>images from Digitraffic]
+    H -.-> G[Wait for user]
     I --> J{Timer hits 0<br/>or user clicks 'Päivitä nyt'}
     J --> F
     G --> K[User picks station]
     K --> L[POST /api/settings/save/<br/>current_station_*]
     L --> M[Update MRU in localStorage]
     M --> F
-    N([User toggles 🌐 / ⚙️]) --> O[POST /api/settings/save/]
+    N([User toggles lang / settings]) --> O[POST /api/settings/save/]
     O --> F
-    P([User clicks 🔍]) --> Q[Open station search modal]
+    P([User clicks search]) --> Q[Open station search modal]
     Q --> R{User selects result}
     R -->|station chosen| L
     R -->|dismissed| G
@@ -431,14 +447,60 @@ Related code:
 
 ---
 
-## 10. Testing Surfaces
+## 10. Geolocation Feature
+
+### 10.1 Overview
+
+On page load, `app.js` checks the `follow_location` session setting. If it is `true`, or if no station has been saved yet, `selectNearestByGeolocation()` is called. This function:
+
+1. Calls `navigator.geolocation.getCurrentPosition()` (8-second timeout).
+2. On success, sends `GET /api/nearest-station/?lat=…&lon=…` to the Django backend.
+3. The backend computes haversine distance from the supplied coordinates to every station in the cached list and returns the closest one.
+4. The frontend selects that station in the dropdown and fetches its weather data.
+
+If geolocation fails for any reason (permission denied, timeout, API error, or non-secure context), the function falls back to the first alphabetically sorted station and logs a timestamped `console.warn`.
+
+### 10.2 Sequence diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Browser as app.js
+    participant Geo as Browser Geolocation API
+    participant Django
+
+    Browser->>Geo: getCurrentPosition() (timeout 8s)
+    alt permission granted
+        Geo-->>Browser: {latitude, longitude}
+        Browser->>Django: GET /api/nearest-station/?lat=…&lon=…
+        Django->>Django: haversine distance over cached station list
+        Django-->>Browser: {id, name, formatted_name, lat, lon}
+        Browser->>Browser: select station, fetchWeather(id)
+    else denied / unavailable / non-secure context
+        Geo-->>Browser: PositionError
+        Browser->>Browser: console.warn + fallback to stations[0]
+    end
+```
+
+### 10.3 Settings integration
+
+The **"Use my location"** checkbox in the ⚙️ Settings modal maps to the `follow_location` boolean in the session. When enabled, geolocation runs on every page load regardless of whether a station was previously saved. When disabled, geolocation still runs once on first visit (no saved station), and subsequent visits restore the manually selected station.
+
+### 10.4 Secure context requirement
+
+The browser Geolocation API is only available in **secure contexts** (HTTPS or `localhost`). On a plain HTTP connection the API object is unavailable and the fallback fires immediately. For local development, access the server via `http://localhost:8000` to satisfy the secure-context requirement without needing a certificate.
+
+---
+
+## 11. Testing Surfaces
 
 - **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, JSON parsing, and all view endpoints. Run: `python manage.py test weather`.
 - **Live smoke test** — [scripts/smoke_test.py](../scripts/smoke_test.py). Hits real Digitraffic (and OWM if a key is supplied).
 
 ---
 
-## 11. Operational Notes
+## 12. Operational Notes
 
 - **Sessions**: Django signed-cookie backend. No server-side session store needed; rotating `SECRET_KEY` invalidates all stored settings.
 - **Cache backend**: Default is in-process `LocMemCache`. Swap to Redis/Memcached if running multiple workers and you want a single shared station list.

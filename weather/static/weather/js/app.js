@@ -23,6 +23,7 @@ const LABELS = {
     apiKeyLabel: 'OpenWeatherMap API-avain:',
     apiKeyHint: 'API-avain tarvitaan säätilan symbolien ja ennusteen näyttämiseen. Rekisteröidy ilmaiseksi osoitteessa openweathermap.org.',
     cameraLabel: 'Näytä kelikameroiden kuvat:',
+    followLocationLabel: 'Käytä sijaintiasi aseman valintaan:',
     save: 'Tallenna',
     cancel: 'Peruuta',
     langToggle: 'EN',
@@ -51,6 +52,7 @@ const LABELS = {
     apiKeyLabel: 'OpenWeatherMap API key:',
     apiKeyHint: 'API key required for weather symbols and forecast. Register for free at openweathermap.org.',
     cameraLabel: 'Show weather camera images:',
+    followLocationLabel: 'Use my location to select station:',
     save: 'Save',
     cancel: 'Cancel',
     langToggle: 'FI',
@@ -79,6 +81,7 @@ const state = {
   currentStationId: null,
   apiKey: '',
   showCamera: true,
+  followLocation: false,
   refreshTimer: null,
   countdownTimer: null,
   countdownValue: 0,
@@ -432,8 +435,10 @@ const dom = {
   settingsTitle:  $('settings-modal-title'),
   apiKeyInput:    $('api-key-input'),
   apiKeyLabel:    null,  // set after DOMContentLoaded
-  cameraToggle:   $('camera-toggle'),
-  cameraLabel:    null,  // set after DOMContentLoaded
+  cameraToggle:        $('camera-toggle'),
+  cameraLabel:         null,  // set after DOMContentLoaded
+  followLocationToggle: $('follow-location-toggle'),
+  followLocationLabel:  null,  // set after DOMContentLoaded
   settingsSave:   $('settings-save'),
   settingsCancel: $('settings-cancel'),
   settingsClose:  $('settings-close'),
@@ -524,6 +529,7 @@ function applyLabels() {
   dom.langToggle.textContent = L.langToggle;
   if (dom.apiKeyLabel) setText(dom.apiKeyLabel, L.apiKeyLabel);
   if (dom.cameraLabel) setText(dom.cameraLabel, L.cameraLabel);
+  if (dom.followLocationLabel) setText(dom.followLocationLabel, L.followLocationLabel);
   const hint = document.querySelector('.settings-hint');
   if (hint) hint.textContent = L.apiKeyHint;
   const settingsSave = dom.settingsSave;
@@ -559,6 +565,7 @@ async function fetchSettings() {
     if (data.openweathermap_api_key) state.apiKey = data.openweathermap_api_key;
     if (data.current_station_id) state.currentStationId = data.current_station_id;
     if (data.show_camera !== undefined) state.showCamera = data.show_camera;
+    if (data.follow_location !== undefined) state.followLocation = data.follow_location;
   } catch (_) { /* ignore */ }
 }
 
@@ -958,6 +965,7 @@ function initEvents() {
 function openSettings() {
   dom.apiKeyInput.value = state.apiKey;
   dom.cameraToggle.checked = state.showCamera;
+  dom.followLocationToggle.checked = state.followLocation;
   setVisible(dom.settingsModal, true);
   dom.apiKeyInput.focus();
 }
@@ -985,12 +993,85 @@ function closeSettings() {
 async function onSettingsSave() {
   const key = dom.apiKeyInput.value.trim();
   const showCamera = dom.cameraToggle.checked;
+  const followLocation = dom.followLocationToggle.checked;
   state.apiKey = key;
   state.showCamera = showCamera;
-  await saveSettings({ openweathermap_api_key: key, show_camera: showCamera });
+  state.followLocation = followLocation;
+  await saveSettings({ openweathermap_api_key: key, show_camera: showCamera, follow_location: followLocation });
   closeSettings();
   setVisible(dom.cameraPanel, showCamera);
-  if (state.currentStationId) fetchWeather(state.currentStationId);
+  if (followLocation) {
+    await selectNearestByGeolocation(state.stations);
+  } else if (state.currentStationId) {
+    fetchWeather(state.currentStationId);
+  }
+}
+
+// ── Geolocation ──────────────────────────────────────────────
+
+/**
+ * @brief Select the nearest weather station using the browser Geolocation API.
+ *
+ * Called on page load when `state.followLocation` is true (user has enabled
+ * "Use my location" in Settings) or when no station has been saved yet.
+ * Obtains the device position via `navigator.geolocation.getCurrentPosition`,
+ * then POSTs the coordinates to `/api/nearest-station/` to find the closest
+ * FMI station by haversine distance.
+ *
+ * Falls back to `stations[0]` (the first alphabetically sorted station) and
+ * logs a `console.warn` with a timestamp if:
+ * - the browser does not support the Geolocation API,
+ * - the user denies the permission prompt,
+ * - the position is not obtained within the 8-second timeout, or
+ * - the `/api/nearest-station/` request fails.
+ *
+ * @note The Geolocation API is only available in secure contexts (HTTPS or
+ *       localhost). On plain HTTP the API is unavailable and the fallback fires
+ *       immediately with "A Geolocation request can only be fulfilled in a
+ *       secure context."
+ *
+ * @param {Array} stations Full station list already fetched from `/api/stations/`.
+ */
+async function selectNearestByGeolocation(stations) {
+  if (!stations.length) return;
+
+  const fallback = (reason) => {
+    console.warn(`[geolocation ${new Date().toISOString()}] Falling back to first station:`, reason);
+    state.currentStationId = stations[0].id;
+    dom.stationSelect.value = String(stations[0].id);
+    fetchWeather(stations[0].id);
+  };
+
+  if (!navigator.geolocation) {
+    fallback('Geolocation API not supported by this browser');
+    return;
+  }
+
+  const position = await new Promise(resolve => {
+    navigator.geolocation.getCurrentPosition(resolve, (err) => {
+      console.warn(`[geolocation ${new Date().toISOString()}] Permission denied or unavailable:`, err.message);
+      resolve(null);
+    }, { timeout: 8000 });
+  });
+
+  if (!position) {
+    fallback('No position returned');
+    return;
+  }
+
+  try {
+    const { latitude, longitude } = position.coords;
+    console.debug(`[geolocation] Got position: lat=${latitude}, lon=${longitude}`);
+    const r = await fetch(`/api/nearest-station/?lat=${latitude}&lon=${longitude}`);
+    if (!r.ok) throw new Error(`nearest-station responded with HTTP ${r.status}`);
+    const nearest = await r.json();
+    console.debug('[geolocation] Nearest station:', nearest.formatted_name);
+    state.currentStationId = nearest.id;
+    dom.stationSelect.value = String(nearest.id);
+    fetchWeather(nearest.id);
+  } catch (err) {
+    fallback(err.message);
+  }
 }
 
 // ── Bootstrap ────────────────────────────────────────────────
@@ -999,6 +1080,7 @@ async function init() {
 
   dom.apiKeyLabel = document.querySelector('.modal-body label');
   dom.cameraLabel = document.querySelector('.camera-setting label');
+  dom.followLocationLabel = document.querySelector('.follow-location-setting label');
   applyLabels();
   initEvents();
 
@@ -1007,16 +1089,13 @@ async function init() {
 
   populateStations(stations);
 
-  // If no saved station, pick the first one
-  if (!state.currentStationId && stations.length > 0) {
-    state.currentStationId = stations[0].id;
-    dom.stationSelect.value = stations[0].id;
+  if (state.followLocation) {
+    await selectNearestByGeolocation(stations);
   } else if (state.currentStationId) {
-    dom.stationSelect.value = state.currentStationId;
-  }
-
-  if (state.currentStationId) {
+    dom.stationSelect.value = String(state.currentStationId);
     fetchWeather(state.currentStationId);
+  } else {
+    await selectNearestByGeolocation(stations);
   }
 }
 

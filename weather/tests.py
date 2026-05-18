@@ -345,3 +345,25 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(data["forecast"][0]["time"], "15:00")
         self.assertEqual(data["forecast"][0]["symbol"], "☀")
         self.assertEqual(data["forecast"][0]["temperature"], "10 °C")
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_api_nearest_station_returns_closest(self, mock_get):
+        """@brief GET /api/nearest-station/ returns the station closest to the given coordinates."""
+        mock_get.return_value = _mock_response(_STATION_LIST_PAYLOAD)
+        # Station is at lat=65.0, lon=25.0 (from _STATION_LIST_PAYLOAD GeoJSON [lon, lat])
+        r = self._get("/api/nearest-station/?lat=65.0&lon=25.0")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data["id"], 12345)
+        self.assertEqual(data["formatted_name"], "Oulu, Ritaharju vt4")
+
+    def test_api_nearest_station_missing_params(self):
+        """@brief GET /api/nearest-station/ without lat/lon returns HTTP 400."""
+        r = self._get("/api/nearest-station/")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("error", r.json())
+
+    def test_api_nearest_station_invalid_params(self):
+        """@brief GET /api/nearest-station/ with non-numeric lat/lon returns HTTP 400."""
+        r = self._get("/api/nearest-station/?lat=abc&lon=xyz")
+        self.assertEqual(r.status_code, 400)
