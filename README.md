@@ -13,7 +13,7 @@ Pick any of 400+ Finnish road weather stations and see current observations, FMI
 - 🛣️ More than 400 Finnish road weather stations (Digitraffic open data)
 - 🌡️ Air temperature with FMI feels-like calculation
 - 💨 Wind speed (avg / max), direction with cardinal text
-- 💧 Humidity, visibility, temperature rate of change, present weather
+- 💧 Humidity, dew point, road surface temperature, visibility, temperature rate of change, present weather
 - 🌦️ Optional 3-period 3-hour forecast + current weather symbol (requires defining an OpenWeatherMap API key)
 - FI/EN Finnish/English UI toggle
 - 🔄 Smart auto-refresh based on each station's observation cadence

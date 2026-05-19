@@ -13,6 +13,8 @@ const LABELS = {
     windDir: 'Tuulen suunta:',
     windMax: 'Maksimituuli:',
     humidity: 'Ilman kosteus:',
+    dewPoint: 'Kastepiste:',
+    roadTemp: 'Tien pintalämpötila:',
     visibility: 'Näkyvyys:',
     forecastTitle: 'Ennuste',
     refresh: 'Päivitä nyt',
@@ -42,6 +44,8 @@ const LABELS = {
     windDir: 'Wind direction:',
     windMax: 'Max wind:',
     humidity: 'Humidity:',
+    dewPoint: 'Dew point:',
+    roadTemp: 'Road surface temp:',
     visibility: 'Visibility:',
     forecastTitle: 'Forecast',
     refresh: 'Refresh now',
@@ -411,6 +415,12 @@ const dom = {
   humidityLabel:  $('humidity-label'),
   humidityValue:  $('humidity-value'),
   humidityRow:    $('humidity-row'),
+  dewPointLabel:  $('dew-point-label'),
+  dewPointValue:  $('dew-point-value'),
+  dewPointRow:    $('dew-point-row'),
+  roadTempLabel:  $('road-temp-label'),
+  roadTempValue:  $('road-temp-value'),
+  roadTempRow:    $('road-temp-row'),
   visibilityLabel:$('visibility-label'),
   visibilityValue:$('visibility-value'),
   visibilityRow:  $('visibility-row'),
@@ -521,6 +531,8 @@ function applyLabels() {
   setText(dom.windDirLabel, L.windDir);
   setText(dom.windMaxLabel, L.windMax);
   setText(dom.humidityLabel, L.humidity);
+  setText(dom.dewPointLabel, L.dewPoint);
+  setText(dom.roadTempLabel, L.roadTemp);
   setText(dom.visibilityLabel, L.visibility);
   setText(dom.forecastTitle, L.forecastTitle);
   setText(dom.refreshLabel, L.refresh);
@@ -653,6 +665,12 @@ function renderWeather(data) {
 
   setVisible(dom.humidityRow, !!data.humidity);
   setText(dom.humidityValue, data.humidity);
+
+  setVisible(dom.dewPointRow, !!data.dew_point);
+  setText(dom.dewPointValue, data.dew_point);
+
+  setVisible(dom.roadTempRow, !!data.road_temperature);
+  setText(dom.roadTempValue, data.road_temperature);
 
   setVisible(dom.visibilityRow, !!data.visibility);
   setText(dom.visibilityValue, data.visibility);

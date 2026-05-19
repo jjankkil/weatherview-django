@@ -227,6 +227,28 @@ class WeatherStation:
         return self.get_value("ILMAN_KOSTEUS", ConversionType.TO_FLOAT)
 
     @property
+    def dew_point(self) -> float:
+        """Get the dew point temperature reading.
+
+        @return Dew point in Celsius, or Constants.INVALID_VALUE if not available.
+        """
+        return self.get_value("KASTEPISTE", ConversionType.TO_FLOAT)
+
+    @property
+    def road_temperature(self) -> float:
+        """Get the road surface temperature reading.
+
+        Tries sensors TIE_1 through TIE_4 in order, returning the first valid reading.
+
+        @return Road surface temperature in Celsius, or Constants.INVALID_VALUE if not available.
+        """
+        for name in ("TIE_1", "TIE_2", "TIE_3", "TIE_4"):
+            v = self.get_value(name, ConversionType.TO_FLOAT)
+            if v != Constants.INVALID_VALUE:
+                return v
+        return Constants.INVALID_VALUE
+
+    @property
     def wind_speed(self) -> float:
         """Get the current wind speed reading.
 
@@ -353,6 +375,8 @@ class WeatherStation:
                 - wind_max: formatted maximum wind gust with unit or empty
                 - wind_direction: localized cardinal direction text or empty
                 - humidity: formatted relative humidity with unit or empty
+                - dew_point: formatted dew point temperature from KASTEPISTE sensor or empty
+                - road_temperature: formatted road surface temperature or empty
                 - visibility: formatted visibility (e.g., "5 km") or empty
                 - present_weather_label: weather category label ("Sade:" or "Säätila:") or empty
                 - present_weather: Finnish weather condition description or empty
@@ -394,6 +418,8 @@ class WeatherStation:
             "wind_max": self.get_formatted("MAKSIMITUULI"),
             "wind_direction": wind_dir_text,
             "humidity": self.get_formatted("ILMAN_KOSTEUS"),
+            "dew_point": self.get_formatted("KASTEPISTE"),
+            "road_temperature": f"{self.road_temperature} °C" if self.road_temperature != Constants.INVALID_VALUE else "",
             "visibility": self.visibility_str,
             "present_weather_label": pw_label,
             "present_weather": pw_text,

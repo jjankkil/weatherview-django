@@ -129,6 +129,8 @@ classDiagram
         +observation_time: datetime
         +air_temperature: float
         +air_humidity: float
+        +dew_point: float
+        +road_temperature: float
         +wind_speed: float
         +wind_direction: int
         +visibility_str: str
@@ -227,7 +229,7 @@ sequenceDiagram
     View->>WS: build_full_weather_response(id, list, api_key, lang)
     WS->>DT: GET /stations/{id}/data
     DT-->>WS: {dataUpdatedTime, sensorValues:[...]}
-    WS->>WS: WeatherStation.parse → derive temp/wind/feels-like/visibility
+    WS->>WS: WeatherStation.parse → derive temp/wind/feels-like/road-temp/visibility; read dew-point/humidity sensors
     alt api_key present
         WS->>OWM: GET /weather?q=city
         alt city lookup fails
