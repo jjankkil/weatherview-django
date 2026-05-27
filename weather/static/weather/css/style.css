@@ -280,8 +280,34 @@ html, body {
   margin-bottom: 14px;
 }
 
+.forecast-carousel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.forecast-nav-btn {
+  flex: 0 0 auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.forecast-nav-btn:hover { background: var(--bg-card2); }
+.forecast-nav-btn:disabled { opacity: 0.25; cursor: default; }
+
 .forecast-items {
   display: flex;
+  flex: 1;
   gap: 12px;
 }
 

@@ -229,7 +229,7 @@ sequenceDiagram
     View->>WS: build_full_weather_response(id, list, api_key, lang)
     WS->>DT: GET /stations/{id}/data
     DT-->>WS: {dataUpdatedTime, sensorValues:[...]}
-    WS->>WS: WeatherStation.parse → derive temp/wind/feels-like/road-temp/visibility; read dew-point/humidity sensors
+    WS->>WS: WeatherStation.parse → derive temp/wind/feels-like/road-temp/visibility/dew-point/humidity
     alt api_key present
         WS->>OWM: GET /weather?q=city
         alt city lookup fails
@@ -237,7 +237,7 @@ sequenceDiagram
         end
         OWM-->>WS: current weather (id → symbol)
         WS->>OWM: GET /forecast?lat&lon
-        OWM-->>WS: 3-hour forecast list (first N items)
+        OWM-->>WS: 3-hour forecast list (all periods, filtered to 3-day window)
     end
     WS-->>View: dict (station_name, temperature, ..., forecast[])
     View-->>Browser: 200 JSON   (or 502 on upstream error)
@@ -300,11 +300,24 @@ This is the value the frontend uses to schedule the next `/api/station/<id>/` ca
 
 ### 5.5 Error handling
 
-**Backend (Django):** `WeatherService._get` swallows `RequestException`, records `_status` and `_error`, and returns `{}`. Callers check `has_error`:
+**Backend (Django):** `WeatherService._get` catches `RequestException`, records `_status` and `_error`, and returns `{}`. The error message is normalized by HTTP status range before being stored:
+
+- **5xx from Digitraffic** → `_error = "Upstream service error (HTTP <status>)"` — clean, no raw URL noise.
+- **4xx from Digitraffic** → `_error = "Upstream request failed (HTTP <status>)"`.
+- **Network-level failure** (no HTTP response, e.g. connection refused) → `_error = str(exc)` (raw exception message); `_status = 0`.
+
+Callers check `has_error`:
 
 - Station list errors → cache is **not** populated; the next request will retry.
-- Observation errors → view returns `{"error": ...}` with HTTP **502**.
+- Observation errors → view returns `{"error": <clean message>}` with HTTP **502**.
 - OWM errors → silently degraded: `current_symbol = ""` and `forecast = []` are returned alongside the Digitraffic data.
+
+**Frontend (JS):** `fetchWeather` handles all non-2xx responses before attempting `r.json()`:
+
+- `r.ok` is false → try to parse JSON; show `data.error` if present (the clean backend message).
+- If JSON parsing fails (e.g. Django debug HTML 500 page) → fall back to the localized `serviceError` label, including the HTTP status code.
+- `fetch()` throws (network-level failure, e.g. no connectivity) → show the localized `networkError` label.
+- In all error cases `scheduleRefresh(60)` fires so the UI retries automatically after 60 seconds.
 
 **Frontend (camera):** Weather camera image loading failures are gracefully handled:
 
@@ -395,7 +408,7 @@ flowchart TD
     GEO -->|denied / unavailable| F1["Use stations[0]"]
     NS --> F
     F1 --> F
-    F --> H[Render card,<br/>show countdown]
+    F --> H[Render card, forecast carousel,<br/>show countdown]
     H --> I[Load weather camera<br/>images from Digitraffic]
     H -.-> G[Wait for user]
     I --> J{Timer hits 0<br/>or user clicks 'Päivitä nyt'}
@@ -415,6 +428,18 @@ flowchart TD
     U --> V[Close lightbox]
     V --> H
 ```
+
+### 8.1 Forecast carousel
+
+The forecast section renders a paginated carousel of 3-hour OWM forecast items:
+
+- **Data**: The backend returns all OWM 3-hour periods with `dt_txt` falling within the next 3 calendar days (today up to, but not including, today + 3). Each item carries `time` (HH:MM), `date` (YYYY-MM-DD), `temperature` (rounded °C string), and `symbol`.
+- **Page size**: 3 items per page (`FORECAST_PAGE_SIZE = 3` in `app.js`).
+- **Navigation**: `‹` / `›` buttons call `forecastGoTo(i)`, which slices `forecastCarousel.items` and re-renders the visible page. Buttons are disabled at the first and last page respectively.
+- **Day label**: Each item's time label is prefixed with a localized weekday abbreviation (e.g. "Ma 15:00") derived from the `date` field, so users can see which day a period belongs to.
+- **Reset on refresh**: `forecastCarousel.index` resets to 0 whenever new station data arrives.
+
+Related code: [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) (`forecastGoTo`, `forecastCarousel`, `FORECAST_PAGE_SIZE`) · [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) (`.forecast-carousel`, `.forecast-nav-btn`) · [weather/services/weather_service.py](../weather/services/weather_service.py) (`build_full_weather_response`).
 
 ---
 
@@ -497,7 +522,7 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 
 ## 11. Testing Surfaces
 
-- **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, JSON parsing, and all view endpoints. Run: `python manage.py test weather`.
+- **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, JSON parsing, forecast date filtering, and all view endpoints. Run: `python manage.py test weather`.
 - **Live smoke test** — [scripts/smoke_test.py](../scripts/smoke_test.py). Hits real Digitraffic (and OWM if a key is supplied).
 
 ---
@@ -506,5 +531,5 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 
 - **Sessions**: Django signed-cookie backend. No server-side session store needed; rotating `SECRET_KEY` invalidates all stored settings.
 - **Cache backend**: Default is in-process `LocMemCache`. Swap to Redis/Memcached if running multiple workers and you want a single shared station list.
-- **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py:28](../weather/services/weather_service.py#L28)). There is no retry; a transient Digitraffic failure surfaces as a 502 to the client, which then schedules another attempt on its next refresh tick.
+- **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py:28](../weather/services/weather_service.py#L28)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as a HTTP 502 to the client with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner and schedules an automatic retry after 60 seconds.
 - **i18n**: Language is a string flag (`fi`/`en`) passed through to `WeatherStation.to_dict` and `wind_direction_as_text`. No Django `gettext` machinery is involved.

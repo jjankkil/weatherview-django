@@ -32,6 +32,8 @@ const LABELS = {
     stationSearch: 'Etsi sääasema',
     stationSearchPlaceholder: 'Kirjoita aseman nimi…',
     stationNoResults: 'Ei tuloksia',
+    serviceError: 'Säätietopalvelu ei vastaa (virhe {code}). Yritetään uudelleen pian.',
+    networkError: 'Verkkovirhe. Tarkista yhteytesi.',
   },
   en: {
     appTitle: 'Road Weather',
@@ -63,8 +65,14 @@ const LABELS = {
     stationSearch: 'Search weather station',
     stationSearchPlaceholder: 'Type station name…',
     stationNoResults: 'No results',
+    serviceError: 'Weather data service unavailable (error {code}). Retrying soon.',
+    networkError: 'Network error. Check your connection.',
   },
 };
+
+// Weekday abbreviations indexed by Date.getDay() (0=Sun)
+const WEEKDAYS_FI = ['Su', 'Ma', 'Ti', 'Ke', 'To', 'Pe', 'La'];
+const WEEKDAYS_EN = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 // ── State ───────────────────────────────────────────────────
 /**
@@ -202,6 +210,8 @@ function findNearestCamera(stations, lat, lon) {
  * @property {Array}  slides Array of preset objects augmented with a `loaded` boolean.
  */
 const carousel = { index: 0, slides: [] };
+const forecastCarousel = { index: 0, items: [] };
+const FORECAST_PAGE_SIZE = 3;
 const lightbox = { index: 0 };
 
 /**
@@ -430,6 +440,8 @@ const dom = {
   forecastSection:$('forecast-section'),
   forecastTitle:  $('forecast-title'),
   forecastItems:  $('forecast-items'),
+  forecastPrev:   $('forecast-prev'),
+  forecastNext:   $('forecast-next'),
   refreshBtn:     $('refresh-btn'),
   refreshLabel:   $('refresh-label'),
   nextUpdateLabel:$('next-update-label'),
@@ -619,14 +631,20 @@ async function fetchWeather(stationId) {
 
   try {
     const r = await fetch(`/api/station/${stationId}/`);
-    const data = await r.json();
 
-    if (!r.ok || data.error) {
-      showError(data.error || `HTTP ${r.status}`);
+    if (!r.ok) {
+      let msg;
+      try {
+        const data = await r.json();
+        msg = data.error;
+      } catch (_) { /* response was not JSON */ }
+      if (!msg) msg = labels().serviceError.replace('{code}', r.status);
+      showError(msg);
       scheduleRefresh(60);
       return;
     }
 
+    const data = await r.json();
     renderWeather(data);
     pushMru(stationId);
     if (state.stations.length > 0) populateStations(state.stations);
@@ -634,7 +652,7 @@ async function fetchWeather(stationId) {
     // Only load and display camera if user has enabled it in settings
     if (state.showCamera) showCameraForStation(stationId);
   } catch (e) {
-    showError(String(e));
+    showError(labels().networkError);
     scheduleRefresh(60);
   } finally {
     state.loading = false;
@@ -689,19 +707,10 @@ function renderWeather(data) {
   setText(dom.currentSymbol, data.current_symbol);
 
   // Forecast
-  const forecasts = data.forecast || [];
-  setVisible(dom.forecastSection, forecasts.length > 0);
-  dom.forecastItems.innerHTML = '';
-  for (const f of forecasts) {
-    const item = document.createElement('div');
-    item.className = 'forecast-item';
-    item.innerHTML = `
-      <span class="forecast-time">${esc(f.time)}</span>
-      <span class="forecast-symbol">${esc(f.symbol) || '—'}</span>
-      <span class="forecast-temp">${esc(f.temperature)}</span>
-    `;
-    dom.forecastItems.appendChild(item);
-  }
+  forecastCarousel.items = data.forecast || [];
+  forecastCarousel.index = 0;
+  setVisible(dom.forecastSection, forecastCarousel.items.length > 0);
+  forecastGoTo(0);
 
   setVisible(dom.weatherCard, true);
 }
@@ -712,6 +721,32 @@ function esc(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function forecastGoTo(i) {
+  forecastCarousel.index = i;
+  const items = forecastCarousel.items;
+  const today = new Date().toISOString().slice(0, 10);
+  const weekdays = state.lang === 'en' ? WEEKDAYS_EN : WEEKDAYS_FI;
+  dom.forecastItems.innerHTML = '';
+  const page = items.slice(i, i + FORECAST_PAGE_SIZE);
+  for (const f of page) {
+    let timeLabel = esc(f.time);
+    if (f.date) {
+      const day = new Date(f.date + 'T00:00:00').getDay();
+      timeLabel = `${weekdays[day]} ${timeLabel}`;
+    }
+    const item = document.createElement('div');
+    item.className = 'forecast-item';
+    item.innerHTML = `
+      <span class="forecast-time">${timeLabel}</span>
+      <span class="forecast-symbol">${esc(f.symbol) || '—'}</span>
+      <span class="forecast-temp">${esc(f.temperature)}</span>
+    `;
+    dom.forecastItems.appendChild(item);
+  }
+  dom.forecastPrev.disabled = i === 0;
+  dom.forecastNext.disabled = i + FORECAST_PAGE_SIZE >= items.length;
 }
 
 
@@ -873,6 +908,14 @@ function initEvents() {
     applyLabels();
     if (state.stations.length > 0) populateStations(state.stations);
     if (state.currentStationId) fetchWeather(state.currentStationId);
+  });
+
+  dom.forecastPrev.addEventListener('click', () => {
+    if (forecastCarousel.index > 0) forecastGoTo(Math.max(0, forecastCarousel.index - FORECAST_PAGE_SIZE));
+  });
+  dom.forecastNext.addEventListener('click', () => {
+    if (forecastCarousel.index + FORECAST_PAGE_SIZE < forecastCarousel.items.length)
+      forecastGoTo(forecastCarousel.index + FORECAST_PAGE_SIZE);
   });
 
   dom.carouselPrev.addEventListener('click', () => {

@@ -143,14 +143,16 @@ def api_station_data(request, station_id: int):
     @return JsonResponse with aggregated weather data:
             - On success (200): complete weather dict with temperature, wind, humidity,
               current_symbol, forecast, etc. (see @ref WeatherService.build_full_weather_response)
-            - On error (502): {"error": "Station {id} not found"} or API error message
+            - On error (502): {"error": "Station {id} not found"} if the station is unknown,
+              or a clean human-readable message such as "Upstream service error (HTTP 503)"
+              when Digitraffic returns a 5xx response. Safe to display directly in the UI.
     @details
     - HTTP method: GET
     - User's OpenWeatherMap API key from session settings (optional)
     - Display language from session settings (default: Finnish)
     - Returns HTTP 502 (Bad Gateway) if station not found or FMI API fails
     - If no OpenWeatherMap API key: returns FMI data only (no weather symbols/forecast)
-    - Forecast limited to Constants.FORECAST_CNT entries
+    - Forecast covers all OWM 3-hour periods up to (but not including) today + 3 days
     """
     settings = _get_settings(request)
     api_key = settings.get("openweathermap_api_key", "")

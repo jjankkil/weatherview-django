@@ -10,6 +10,8 @@ weather information for Finnish weather stations.
 @version 1.0
 """
 
+import datetime
+
 import requests
 from requests.exceptions import RequestException
 
@@ -61,8 +63,10 @@ class WeatherService:
     def _get(self, url: str, key: str = "") -> dict | list:
         """Perform an HTTP GET request with error handling and JSON parsing.
 
-        Internal method for making authenticated HTTP requests. Handles RequestException
-        and extracts JSON data with optional key filtering.
+        Internal method for making outbound HTTP requests. Catches RequestException
+        and normalizes the error message by HTTP status range before storing it,
+        so callers always receive a clean, user-displayable string rather than a
+        raw exception with embedded URLs.
 
         @param url The URL endpoint to request from.
         @param key Optional JSON key to extract from response. If provided, returns the value
@@ -70,7 +74,9 @@ class WeatherService:
         @return Dictionary or list from the JSON response, or empty dict on error.
         @details
         - Sets HTTP timeout to 10 seconds
-        - Captures HTTP status code and exception message on failure
+        - On HTTP 5xx: sets _error to "Upstream service error (HTTP <status>)"
+        - On HTTP 4xx: sets _error to "Upstream request failed (HTTP <status>)"
+        - On network-level failure (no HTTP response): sets _error to str(exc), _status to 0
         - Filters response by key if provided (returns empty dict if key not found)
         """
         self._error = ""
@@ -81,8 +87,14 @@ class WeatherService:
             data = r.json()
             return data.get(key, {}) if key else data
         except RequestException as exc:
-            self._status = getattr(getattr(exc, "response", None), "status_code", 0) or 0
-            self._error = str(exc)
+            resp = getattr(exc, "response", None)
+            self._status = getattr(resp, "status_code", 0) or 0
+            if self._status >= 500:
+                self._error = f"Upstream service error (HTTP {self._status})"
+            elif self._status >= 400:
+                self._error = f"Upstream request failed (HTTP {self._status})"
+            else:
+                self._error = str(exc)
             return {}
 
     def get_station_list(self) -> WeatherStationList:
@@ -180,15 +192,19 @@ class WeatherService:
                 - station_id: The requested station ID
                 - station_name: Formatted station name from station_list
                 - current_symbol: Weather condition symbol (empty if no OpenWeatherMap data)
-                - forecast: Array of forecast objects with time, temperature, and symbol
+                - forecast: Array of forecast objects, each with time (HH:MM), date (YYYY-MM-DD),
+                  temperature (rounded °C string), and symbol
                 - Additional keys from station_data.to_dict(lang)
-                Returns error dict if station not found or FMI request fails.
+                Returns {"error": <clean message>} if station not found or Digitraffic request
+                fails. The error message is human-readable (e.g. "Upstream service error
+                (HTTP 503)") and safe to display directly in the UI.
         @details
         - Validates station_id exists in station_list before querying FMI
         - Current weather symbol requires valid api_key and OpenWeatherMap API access
-        - Forecast includes up to Constants.FORECAST_CNT entries from OpenWeatherMap
-        - Temperature is converted from Kelvin to Celsius (rounded to 1 decimal place)
-        - Time is extracted as HH:MM from ISO 8601 datetime string
+        - Forecast covers the full OWM 3-hour list up to (but not including) today + 3 days;
+          items with a malformed or missing dt_txt are skipped
+        - Temperature is converted from Kelvin to Celsius (rounded to nearest integer)
+        - Time is extracted as HH:MM from the ISO 8601 dt_txt field
         - Gracefully handles missing OpenWeatherMap data by returning FMI-only response
         """
         station_info = station_list.find_by_id(station_id)
@@ -214,14 +230,22 @@ class WeatherService:
 
             forecast_data = self.get_forecast(station_info.coordinates, api_key)
             forecasts = []
-            for item in forecast_data.get("list", [])[:Constants.FORECAST_CNT]:
+            today = datetime.date.today()
+            cutoff = today + datetime.timedelta(days=3)
+            for item in forecast_data.get("list", []):
                 dt_txt = item.get("dt_txt", "")
+                if len(dt_txt) < 10:
+                    continue
+                item_date = datetime.date.fromisoformat(dt_txt[:10])
+                if item_date >= cutoff:
+                    break
                 time_part = dt_txt[11:16] if len(dt_txt) >= 16 else ""
                 temp_k = item.get("main", {}).get("temp", 0)
                 temp_c = round(temp_k - 273.15)
                 weather_id = item.get("weather", [{}])[0].get("id", 0)
                 forecasts.append({
                     "time": time_part,
+                    "date": dt_txt[:10],
                     "temperature": f"{temp_c} °C",
                     "symbol": get_weather_symbol(weather_id),
                 })

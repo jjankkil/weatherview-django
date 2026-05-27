@@ -22,12 +22,15 @@ that actually hits Digitraffic + OpenWeatherMap is in
 `scripts/smoke_test.py`.
 """
 
+import datetime
 from unittest.mock import patch, MagicMock
 
+import requests as requests_lib
 from django.test import SimpleTestCase, Client
 from django.core.cache import cache
 
 from weather.services.helpers import ok_to_add_station
+from weather.services.weather_service import WeatherService
 from weather.services.physics import fmi_feels_like_temperature
 from weather.services.ui_helpers import (
     get_weather_symbol,
@@ -132,6 +135,19 @@ def _mock_response(json_data, status_code=200):
     m.json.return_value = json_data
     m.raise_for_status = MagicMock()
     return m
+
+
+def _mock_http_error_response(status_code):
+    """@brief Build a mock requests.Response that raises HTTPError on raise_for_status().
+
+    @param status_code HTTP status code of the simulated error response.
+    @return MagicMock whose raise_for_status() raises requests.HTTPError.
+    """
+    resp = MagicMock()
+    resp.status_code = status_code
+    http_err = requests_lib.exceptions.HTTPError(response=resp)
+    resp.raise_for_status = MagicMock(side_effect=http_err)
+    return resp
 
 
 # ── Pure helpers ────────────────────────────────────────────
@@ -320,11 +336,12 @@ class ViewTests(SimpleTestCase):
         )
         self.assertEqual(r.status_code, 200)
 
+        today_str = datetime.date.today().isoformat()
         owm_city = {"weather": [{"id": 800}]}
         owm_forecast = {
             "list": [
                 {
-                    "dt_txt": "2026-05-12 15:00:00",
+                    "dt_txt": f"{today_str} 15:00:00",
                     "main": {"temp": 283.15},
                     "weather": [{"id": 800}],
                 }
@@ -343,8 +360,119 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(data["current_symbol"], "☀")
         self.assertEqual(len(data["forecast"]), 1)
         self.assertEqual(data["forecast"][0]["time"], "15:00")
+        self.assertEqual(data["forecast"][0]["date"], today_str)
         self.assertEqual(data["forecast"][0]["symbol"], "☀")
         self.assertEqual(data["forecast"][0]["temperature"], "10 °C")
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_forecast_excludes_items_on_or_after_cutoff(self, mock_get):
+        """@brief Forecast items on or after today+3 are excluded; items within 3 days are included."""
+        r = self._post(
+            "/api/settings/save/",
+            data='{"openweathermap_api_key": "k", "language": "fi"}',
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200)
+
+        today = datetime.date.today()
+        within = today + datetime.timedelta(days=2)
+        cutoff = today + datetime.timedelta(days=3)
+
+        owm_city = {"weather": [{"id": 800}]}
+        owm_forecast = {
+            "list": [
+                {
+                    "dt_txt": f"{within.isoformat()} 09:00:00",
+                    "main": {"temp": 283.15},
+                    "weather": [{"id": 800}],
+                },
+                {
+                    "dt_txt": f"{cutoff.isoformat()} 09:00:00",
+                    "main": {"temp": 290.15},
+                    "weather": [{"id": 500}],
+                },
+            ]
+        }
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_response(owm_city),
+            _mock_response(owm_forecast),
+        ]
+
+        r = self._get("/api/station/12345/")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(len(data["forecast"]), 1)
+        self.assertEqual(data["forecast"][0]["date"], within.isoformat())
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_forecast_item_includes_date_field(self, mock_get):
+        """@brief Each forecast item contains a 'date' field with the ISO date string."""
+        r = self._post(
+            "/api/settings/save/",
+            data='{"openweathermap_api_key": "k", "language": "fi"}',
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200)
+
+        tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+        owm_city = {"weather": [{"id": 800}]}
+        owm_forecast = {
+            "list": [
+                {
+                    "dt_txt": f"{tomorrow} 12:00:00",
+                    "main": {"temp": 280.0},
+                    "weather": [{"id": 801}],
+                }
+            ]
+        }
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_response(owm_city),
+            _mock_response(owm_forecast),
+        ]
+
+        r = self._get("/api/station/12345/")
+        self.assertEqual(r.status_code, 200)
+        item = r.json()["forecast"][0]
+        self.assertIn("date", item)
+        self.assertEqual(item["date"], tomorrow)
+        self.assertEqual(item["time"], "12:00")
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_forecast_skips_items_with_short_dt_txt(self, mock_get):
+        """@brief Forecast items with a dt_txt shorter than 10 characters are silently skipped."""
+        r = self._post(
+            "/api/settings/save/",
+            data='{"openweathermap_api_key": "k", "language": "fi"}',
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200)
+
+        today_str = datetime.date.today().isoformat()
+        owm_city = {"weather": [{"id": 800}]}
+        owm_forecast = {
+            "list": [
+                {"dt_txt": "bad", "main": {"temp": 300.0}, "weather": [{"id": 800}]},
+                {
+                    "dt_txt": f"{today_str} 06:00:00",
+                    "main": {"temp": 283.15},
+                    "weather": [{"id": 800}],
+                },
+            ]
+        }
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_response(owm_city),
+            _mock_response(owm_forecast),
+        ]
+
+        r = self._get("/api/station/12345/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()["forecast"]), 1)
 
     @patch("weather.services.weather_service.requests.get")
     def test_api_nearest_station_returns_closest(self, mock_get):
@@ -367,3 +495,74 @@ class ViewTests(SimpleTestCase):
         """@brief GET /api/nearest-station/ with non-numeric lat/lon returns HTTP 400."""
         r = self._get("/api/nearest-station/?lat=abc&lon=xyz")
         self.assertEqual(r.status_code, 400)
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_api_station_data_upstream_503_returns_502_with_clean_message(self, mock_get):
+        """@brief When Digitraffic returns 503, the station endpoint returns HTTP 502 with a clean error message."""
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),      # station list succeeds
+            _mock_http_error_response(503),             # station data: 503 from Digitraffic
+        ]
+        r = self._get("/api/station/12345/")
+        self.assertEqual(r.status_code, 502)
+        data = r.json()
+        self.assertIn("error", data)
+        self.assertIn("503", data["error"])
+        self.assertNotIn("http", data["error"].lower().replace("http 503", ""))  # no raw URL
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_api_station_data_upstream_500_returns_502_with_clean_message(self, mock_get):
+        """@brief When Digitraffic returns 500, the station endpoint returns HTTP 502 with a clean error message."""
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_http_error_response(500),
+        ]
+        r = self._get("/api/station/12345/")
+        self.assertEqual(r.status_code, 502)
+        data = r.json()
+        self.assertIn("error", data)
+        self.assertIn("500", data["error"])
+
+
+class WeatherServiceErrorTests(SimpleTestCase):
+    """@brief Unit tests for WeatherService._get() error message formatting."""
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_503_produces_clean_error_message(self, mock_get):
+        """@brief _get() on a 503 response sets a human-readable error, not a raw exception string."""
+        mock_get.return_value = _mock_http_error_response(503)
+        svc = WeatherService()
+        result = svc._get("https://example.com/")
+        self.assertEqual(result, {})
+        self.assertTrue(svc.has_error)
+        self.assertEqual(svc._status, 503)
+        self.assertEqual(svc.error_message, "Upstream service error (HTTP 503)")
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_500_produces_clean_error_message(self, mock_get):
+        """@brief _get() on a 500 response sets a human-readable error."""
+        mock_get.return_value = _mock_http_error_response(500)
+        svc = WeatherService()
+        svc._get("https://example.com/")
+        self.assertEqual(svc.error_message, "Upstream service error (HTTP 500)")
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_404_produces_clean_error_message(self, mock_get):
+        """@brief _get() on a 404 response sets a human-readable error (not raw URL)."""
+        mock_get.return_value = _mock_http_error_response(404)
+        svc = WeatherService()
+        svc._get("https://example.com/")
+        self.assertTrue(svc.has_error)
+        self.assertEqual(svc._status, 404)
+        self.assertEqual(svc.error_message, "Upstream request failed (HTTP 404)")
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_connection_error_preserved_as_string(self, mock_get):
+        """@brief _get() on a connection error (no HTTP response) preserves the exception message."""
+        mock_get.side_effect = requests_lib.exceptions.ConnectionError("Connection refused")
+        svc = WeatherService()
+        result = svc._get("https://example.com/")
+        self.assertEqual(result, {})
+        self.assertTrue(svc.has_error)
+        self.assertEqual(svc._status, 0)
+        self.assertIn("Connection refused", svc.error_message)

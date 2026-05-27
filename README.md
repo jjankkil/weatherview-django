@@ -14,7 +14,7 @@ Pick any of 400+ Finnish road weather stations and see current observations, FMI
 - 🌡️ Air temperature with FMI feels-like calculation
 - 💨 Wind speed (avg / max), direction with cardinal text
 - 💧 Humidity, dew point, road surface temperature, visibility, temperature rate of change, present weather
-- 🌦️ Optional 3-period 3-hour forecast + current weather symbol (requires defining an OpenWeatherMap API key)
+- 🌦️ Optional short-range forecast (all 3-hour OWM periods up to 3 days ahead, with paginated carousel) + current weather symbol (requires an OpenWeatherMap API key)
 - FI/EN Finnish/English UI toggle
 - 🔄 Smart auto-refresh based on each station's observation cadence
 - ⭐ 5-item MRU station list, persisted in browser `localStorage`
@@ -60,6 +60,146 @@ The weather symbol and forecast are only shown when an OpenWeatherMap API key is
    **Tallenna / Save**.
 
 The key is stored in the browser session (signed cookie). It is never persisted server-side.
+
+---
+
+## Deployment on Linux
+
+This section describes deploying the app on a Linux server (tested on Raspberry Pi 3, Debian Bookworm). The stack is **Gunicorn** behind **Nginx**.
+
+### 1. Install system dependencies
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3 python3-venv git nginx
+```
+
+### 2. Clone and install
+
+```bash
+cd /opt
+sudo mkdir weatherview && sudo chown $USER:$USER weatherview
+git clone https://github.com/jjankkil/weatherview-django weatherview
+cd weatherview
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 3. Configure environment
+
+Create `/opt/weatherview/.env` with at minimum:
+
+```env
+WVD_SECRET_KEY=<generate with: python3 -c "from django.utils.crypto import get_random_string; print(get_random_string(50))">
+WVD_ALLOWED_HOSTS=<hostname-or-ip>,localhost
+```
+
+Collect static files (run with venv active):
+
+```bash
+python manage.py collectstatic --noinput
+```
+
+### 4. Systemd service
+
+Create `/etc/systemd/system/weatherview.service`:
+
+```ini
+[Unit]
+Description=WeatherView Django app
+After=network.target
+
+[Service]
+User=pi
+EnvironmentFile=/opt/weatherview/.env
+WorkingDirectory=/opt/weatherview
+ExecStart=/opt/weatherview/.venv/bin/gunicorn weatherview_project.wsgi:application --bind 127.0.0.1:8000 --workers 2
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now weatherview
+```
+
+### 5. Nginx
+
+Create `/etc/nginx/sites-available/weatherview`:
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate     /etc/ssl/weatherview/cert.pem;
+    ssl_certificate_key /etc/ssl/weatherview/key.pem;
+
+    location /static/ {
+        alias /opt/weatherview/staticfiles/;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/weatherview /etc/nginx/sites-enabled/
+sudo rm /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+### 6. HTTPS with a self-signed certificate
+
+HTTPS is required for the browser Geolocation API. For a private LAN, a self-signed certificate is sufficient.
+
+```bash
+sudo mkdir -p /etc/ssl/weatherview
+sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+  -keyout /etc/ssl/weatherview/key.pem \
+  -out /etc/ssl/weatherview/cert.pem \
+  -subj "/CN=<server-ip-or-hostname>" \
+  -addext "subjectAltName=IP:<server-ip>"
+```
+
+On first visit the browser will warn about the self-signed certificate — click **Advanced → Proceed** to accept it.
+
+Add to `settings.py` to let Django know it's behind an HTTPS proxy:
+
+```python
+SECURE_SSL_REDIRECT = False          # Nginx handles the HTTP→HTTPS redirect
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+```
+
+### Updating
+
+After a `git pull`:
+
+```bash
+# If only Python files changed:
+sudo systemctl restart weatherview
+
+# If static files (CSS/JS) also changed:
+source .venv/bin/activate
+python manage.py collectstatic --noinput
+sudo systemctl restart weatherview
+```
 
 ---
 
@@ -167,7 +307,7 @@ This generates HTML documentation in `docs/doxygen/html/`. Open `docs/doxygen/ht
 
 Two test surfaces ship with the project:
 
-**Offline Django tests** — 20 tests covering helpers, FMI physics, JSON parsing, and all HTTP endpoints (mocked):
+**Offline Django tests** — 29 tests covering helpers, FMI physics, JSON parsing, forecast date filtering, upstream error handling (5xx / 4xx / network failures), and all HTTP endpoints (mocked):
 
 ```bash
 python manage.py test weather

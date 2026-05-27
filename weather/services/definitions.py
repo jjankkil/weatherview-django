@@ -16,7 +16,7 @@ class Constants:
 
     Defines sentinel values, timing parameters, and data limits used by the weather service.
     """
-    FORECAST_CNT = 3  #!< Number of forecast periods to retrieve from OpenWeatherMap
+    FORECAST_CNT = 3  #!< Legacy constant (no longer used for forecast slicing; kept for reference)
     STATION_UPDATE_DELAY_S = 60  #!< Delay in seconds before checking for new station data
     DEFAULT_POLLING_INTERVAL_S = 60  #!< Default polling interval when update timing is unknown
     INVALID_VALUE = -999.0  #!< Sentinel value indicating missing or invalid measurement
@@ -62,7 +62,7 @@ class Urls:
         "https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}"
     )  #!< Current weather by coordinates. Args: latitude, longitude, API key
     OPENWEATHERMAP_FORECAST_URL = (
-        "https://api.openweathermap.org/data/2.5/forecast?cnt=8&lat={}&lon={}&appid={}"
-    )  #!< 5-day forecast (8 3-hour periods). Args: latitude, longitude, API key
+        "https://api.openweathermap.org/data/2.5/forecast?lat={}&lon={}&appid={}"
+    )  #!< 5-day forecast (all 3-hour periods). Args: latitude, longitude, API key
     STATION_LIST_URL = "https://tie.digitraffic.fi/api/weather/v1/stations"  #!< FMI station list with metadata and coordinates
     WEATHER_STATION_URL = "https://tie.digitraffic.fi/api/weather/v1/stations/{}/data"  #!< FMI station observations. Args: station ID
