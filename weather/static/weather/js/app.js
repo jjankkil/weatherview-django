@@ -1,5 +1,12 @@
 'use strict';
 
+import { MRU_KEY, MRU_MAX } from './constants.js';
+import {
+  initCamera, showCameraForStation,
+  carousel, lightbox,
+  carouselGoTo, lightboxGoTo, openLightbox, closeLightbox,
+} from './camera.js';
+
 // ── i18n ────────────────────────────────────────────────────
 const LABELS = {
   fi: {
@@ -26,6 +33,11 @@ const LABELS = {
     apiKeyHint: 'API-avain tarvitaan säätilan symbolien ja ennusteen näyttämiseen. Rekisteröidy ilmaiseksi osoitteessa openweathermap.org.',
     cameraLabel: 'Näytä kelikameroiden kuvat:',
     followLocationLabel: 'Käytä sijaintiasi aseman valintaan:',
+    cameraLoaded: 'Ladattu',
+    cameraDirection: 'Suunta',
+    cameraImageUnavailable: 'Kuva ei saatavilla',
+    mruRecent: 'Viimeisimmät',
+    mruAll: 'Kaikki asemat',
     save: 'Tallenna',
     cancel: 'Peruuta',
     langToggle: 'EN',
@@ -59,6 +71,11 @@ const LABELS = {
     apiKeyHint: 'API key required for weather symbols and forecast. Register for free at openweathermap.org.',
     cameraLabel: 'Show weather camera images:',
     followLocationLabel: 'Use my location to select station:',
+    cameraLoaded: 'Loaded',
+    cameraDirection: 'Direction',
+    cameraImageUnavailable: 'Image unavailable',
+    mruRecent: 'Recent',
+    mruAll: 'All stations',
     save: 'Save',
     cancel: 'Cancel',
     langToggle: 'FI',
@@ -84,7 +101,7 @@ const WEEKDAYS_EN = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
  * @property {boolean} showCamera Whether to display weather camera images.
  * @property {?number} refreshTimer Timeout ID for the scheduled weather refresh.
  * @property {?number} countdownTimer Interval ID for the countdown display timer.
- * @property {number} countdownValue Seconds remaining until next automatic refresh.
+ * @property {?number} refreshDueAt Epoch ms when the next refresh is due (null if not scheduled).
  * @property {boolean} loading Whether a weather data fetch is currently in progress.
  */
 const state = {
@@ -96,303 +113,13 @@ const state = {
   followLocation: false,
   refreshTimer: null,
   countdownTimer: null,
-  countdownValue: 0,
+  refreshDueAt: null,
   loading: false,
 };
 
-// ── Camera ──────────────────────────────────────────────────
-
-/** @brief In-memory cache of GeoJSON features from the camera stations API. null until first fetch. */
-let cameraStations = null;
-
-/**
- * @brief Calculate the great-circle distance between two WGS84 coordinates.
- *
- * Uses the haversine formula.
- *
- * @param {number} lat1 Latitude of the first point in decimal degrees.
- * @param {number} lon1 Longitude of the first point in decimal degrees.
- * @param {number} lat2 Latitude of the second point in decimal degrees.
- * @param {number} lon2 Longitude of the second point in decimal degrees.
- * @return {number} Distance in kilometres.
- */
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/**
- * @brief Fetch and cache the full Digitraffic weathercam station list.
- *
- * Retrieves GeoJSON features from CAMERA_STATIONS_URL on first call and
- * stores the result in the module-level cameraStations cache for subsequent calls.
- *
- * @return {Promise<?Array>} Resolves to the array of GeoJSON feature objects,
- *         or null if the request fails.
- */
-async function loadCameraStations() {
-  if (cameraStations) return cameraStations;
-  try {
-    const r = await fetch(CAMERA_STATIONS_URL);
-    if (!r.ok) return null;
-    const data = await r.json();
-    cameraStations = data.features || [];
-    return cameraStations;
-  } catch (_) {
-    return null;
-  }
-}
-
-/**
- * @brief Calculate the initial bearing from one WGS84 point to another.
- *
- * @param {number} lat1 Latitude of the origin in decimal degrees.
- * @param {number} lon1 Longitude of the origin in decimal degrees.
- * @param {number} lat2 Latitude of the destination in decimal degrees.
- * @param {number} lon2 Longitude of the destination in decimal degrees.
- * @return {number} Bearing in degrees [0, 360), clockwise from north.
- */
-function bearingDeg(lat1, lon1, lat2, lon2) {
-  const toRad = x => x * Math.PI / 180;
-  const dLon = toRad(lon2 - lon1);
-  const y = Math.sin(dLon) * Math.cos(toRad(lat2));
-  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-            Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
-  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-}
-
-/**
- * @brief Convert a bearing in degrees to a localised direction label.
- *
- * Snaps the bearing to the nearest of 8 compass points (45° sectors).
- *
- * @param {number} deg Bearing in degrees [0, 360).
- * @param {string} lang Language code ('fi' or 'en').
- * @return {string} Localised direction string, e.g. "etelään" or "south".
- */
-function bearingLabel(deg, lang) {
-  const dirs = lang === 'en' ? DIRECTIONS_EN : DIRECTIONS_FI;
-  return dirs[Math.round(deg / 45) % 8];
-}
-
-/**
- * @brief Find the weathercam station closest to a given coordinate.
- *
- * Iterates all GeoJSON features and returns the one with the minimum
- * haversine distance to the given point.
- *
- * @param {Array} stations Array of GeoJSON feature objects from the camera stations API.
- * @param {number} lat Reference latitude in decimal degrees.
- * @param {number} lon Reference longitude in decimal degrees.
- * @return {?{feature: Object, distanceKm: number}} The nearest feature and its distance,
- *         or null if the stations array is empty.
- */
-function findNearestCamera(stations, lat, lon) {
-  let best = null, bestDist = Infinity;
-  for (const f of stations) {
-    const [fLon, fLat] = f.geometry.coordinates;
-    const d = haversineKm(lat, lon, fLat, fLon);
-    if (d < bestDist) { bestDist = d; best = f; }
-  }
-  return best ? { feature: best, distanceKm: bestDist } : null;
-}
-
-// ── Carousel state ───────────────────────────────────────────
-
-/**
- * @brief Mutable state for the camera image carousel.
- * @property {number} index  Index of the currently visible slide.
- * @property {Array}  slides Array of preset objects augmented with a `loaded` boolean.
- */
-const carousel = { index: 0, slides: [] };
+// ── Forecast carousel state ───────────────────────────────────
 const forecastCarousel = { index: 0, items: [] };
 const FORECAST_PAGE_SIZE = 3;
-const lightbox = { index: 0 };
-
-/**
- * @brief Navigate the carousel to a specific slide index.
- *
- * Translates the track element, updates the prev/next button disabled states,
- * and refreshes the camera footer text with the load time and pointing direction
- * of the newly visible slide.
- *
- * @param {number} i Zero-based index of the target slide.
- */
-function carouselGoTo(i) {
-  carousel.index = i;
-  dom.carouselTrack.style.transform = `translateX(-${i * 100}%)`;
-  dom.carouselPrev.disabled = i === 0;
-  dom.carouselNext.disabled = i === carousel.slides.length - 1;
-  const slide = carousel.slides[i];
-  if (slide) {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString(state.lang === 'en' ? 'en-GB' : 'fi-FI');
-    const loadedStr = state.lang === 'en' ? `Loaded ${timeStr}` : `Ladattu ${timeStr}`;
-    dom.cameraUpdated.textContent = slide.loaded
-      ? (slide.presentationName ? `${loadedStr} · ${state.lang === 'en' ? 'Direction' : 'Suunta'} ${slide.presentationName}` : loadedStr)
-      : (slide.presentationName ? `${state.lang === 'en' ? 'Direction' : 'Suunta'} ${slide.presentationName}` : '');
-  }
-}
-
-/**
- * @brief Populate the carousel DOM with one slide per camera preset.
- *
- * Clears the existing carousel track and creates a slide for each preset.
- * Each slide shows a loading spinner while its image is fetching, then replaces
- * the spinner with the loaded image. A direction label overlay is added when
- * the preset has a presentationName. Images are cache-busted with the timestamp ts.
- *
- * @param {Array}  presets Array of preset objects (id, presentationName, inCollection, …).
- * @param {number} ts      Timestamp appended as a cache-bust query parameter.
- */
-function buildCarousel(presets, ts) {
-  carousel.slides = presets.map(p => ({ ...p, loaded: false }));
-  carousel.index = 0;
-  dom.carouselTrack.innerHTML = '';
-
-  for (const preset of presets) {
-    const slide = document.createElement('div');
-    slide.className = 'carousel-slide';
-
-    const loading = document.createElement('div');
-    loading.className = 'carousel-slide-loading';
-    loading.textContent = '⏳';
-    slide.appendChild(loading);
-
-    if (preset.presentationName) {
-      const label = document.createElement('div');
-      label.className = 'carousel-slide-label';
-      label.textContent = preset.presentationName;
-      slide.appendChild(label);
-    }
-
-    const imgUrl = `${CAMERA_IMAGE_BASE}${preset.id}.jpg?t=${ts}`;
-    const img = new Image();
-    img.onload = () => {
-      img.className = '';
-      loading.replaceWith(img);
-      const idx = carousel.slides.findIndex(s => s.id === preset.id);
-      if (idx >= 0) carousel.slides[idx].loaded = true;
-      if (carousel.index === idx) carouselGoTo(idx);
-    };
-    img.onerror = () => {
-      const err = document.createElement('div');
-      err.className = 'carousel-slide-error';
-      err.textContent = state.lang === 'en' ? 'Image unavailable' : 'Kuva ei saatavilla';
-      loading.replaceWith(err);
-    };
-    img.src = imgUrl;
-    dom.carouselTrack.appendChild(slide);
-  }
-
-  dom.carouselPrev.disabled = true;
-  dom.carouselNext.disabled = presets.length <= 1;
-  dom.carouselTrack.style.transform = 'translateX(0)';
-
-  const first = presets[0];
-  dom.cameraUpdated.textContent = first?.presentationName
-    ? `${state.lang === 'en' ? 'Direction' : 'Suunta'} ${first.presentationName}`
-    : '';
-}
-
-function lightboxGoTo(i) {
-  lightbox.index = i;
-  const unit = dom.lightbox.classList.contains('is-fullscreen') ? '%' : 'vw';
-  dom.lightboxTrack.style.transform = `translateX(-${i * 100}${unit})`;
-  dom.lightboxPrev.disabled = i === 0;
-  dom.lightboxNext.disabled = i === carousel.slides.length - 1;
-}
-
-function openLightbox(startIndex) {
-  dom.lightboxTrack.innerHTML = '';
-  const carouselImgs = dom.carouselTrack.querySelectorAll('img');
-  carousel.slides.forEach((slide, i) => {
-    const div = document.createElement('div');
-    div.className = 'lightbox-slide';
-    const srcImg = carouselImgs[i];
-    if (srcImg) {
-      const img = new Image();
-      img.src = srcImg.src;
-      div.appendChild(img);
-    }
-    if (slide.presentationName) {
-      const label = document.createElement('div');
-      label.className = 'lightbox-slide-label';
-      label.textContent = slide.presentationName;
-      div.appendChild(label);
-    }
-    dom.lightboxTrack.appendChild(div);
-  });
-  dom.lightbox.classList.remove('hidden');
-  document.body.style.overflow = 'hidden';
-  lightboxGoTo(startIndex);
-}
-
-function closeLightbox() {
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  dom.lightbox.classList.add('hidden');
-  document.body.style.overflow = '';
-}
-
-/**
- * @brief Find the nearest weathercam to a weather station and display it in the carousel.
- *
- * Loads the camera station list (cached after first call), finds the closest camera
- * to the selected weather station by haversine distance, fetches the camera's detail
- * endpoint to obtain presentationName for each preset, then calls buildCarousel to
- * render all active presets as carousel slides.
- *
- * @param {number} stationId FMI station ID of the currently selected weather station.
- * @details
- * - Silently returns if the weather station has no coordinates.
- * - Falls back to preset IDs without presentationName if the detail request fails.
- * - Camera panel is made visible before image fetching begins.
- */
-async function showCameraForStation(stationId) {
-  const station = state.stations.find(s => s.id === stationId);
-  if (!station || station.lat == null || station.lon == null) return;
-
-  const camStations = await loadCameraStations();
-  if (!camStations || camStations.length === 0) return;
-
-  const result = findNearestCamera(camStations, station.lat, station.lon);
-  if (!result) return;
-
-  const { feature, distanceKm } = result;
-
-  const [camLon, camLat] = feature.geometry.coordinates;
-  const bearing = bearingDeg(station.lat, station.lon, camLat, camLon);
-  const dirLabel = bearingLabel(bearing, state.lang);
-  const distM = Math.round(distanceKm * 1000);
-  const distLabel = distanceKm < 1
-    ? `${distM} m ${dirLabel}`
-    : `${distanceKm.toFixed(1)} km ${dirLabel}`;
-
-  const rawName = feature.properties.name || feature.properties.id || '';
-  dom.cameraTitle.textContent = rawName.replace(/_/g, ' ');
-  dom.cameraDistance.textContent = distLabel;
-  dom.cameraUpdated.textContent = '';
-  setVisible(dom.cameraPanel, true);
-
-  // Fetch detail for presentationName on all presets
-  let presets = (feature.properties.presets || []).filter(p => p.inCollection);
-  try {
-    const dr = await fetch(`${CAMERA_STATIONS_URL}/${feature.properties.id}`);
-    if (dr.ok) {
-      const detail = await dr.json();
-      const detailMap = new Map((detail.properties?.presets || []).map(p => [p.id, p]));
-      presets = presets.map(p => ({ ...p, ...(detailMap.get(p.id) || {}) }));
-    }
-  } catch (_) { /* use presets without presentationName */ }
-
-  if (presets.length === 0) return;
-  buildCarousel(presets, Date.now());
-}
 
 // ── DOM refs ────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -456,11 +183,11 @@ const dom = {
   settingsModal:  $('settings-modal'),
   settingsTitle:  $('settings-modal-title'),
   apiKeyInput:    $('api-key-input'),
-  apiKeyLabel:    null,  // set after DOMContentLoaded
+  apiKeyLabel:    $('api-key-label'),
   cameraToggle:        $('camera-toggle'),
-  cameraLabel:         null,  // set after DOMContentLoaded
+  cameraLabel:         $('camera-label'),
   followLocationToggle: $('follow-location-toggle'),
-  followLocationLabel:  null,  // set after DOMContentLoaded
+  followLocationLabel:  $('follow-location-label'),
   settingsSave:   $('settings-save'),
   settingsCancel: $('settings-cancel'),
   settingsClose:  $('settings-close'),
@@ -503,28 +230,38 @@ function clearCountdown() {
   clearTimeout(state.refreshTimer);
   state.countdownTimer = null;
   state.refreshTimer = null;
+  state.refreshDueAt = null;
   dom.nextUpdateLabel.textContent = '';
+}
+
+function pauseCountdown() {
+  clearInterval(state.countdownTimer);
+  clearTimeout(state.refreshTimer);
+  state.countdownTimer = null;
+  state.refreshTimer = null;
+  dom.nextUpdateLabel.textContent = '';
+}
+
+function resumeCountdown(seconds) {
+  dom.nextUpdateLabel.textContent = labels().nextUpdate.replace('{s}', seconds);
+  state.countdownTimer = setInterval(() => {
+    const remaining = Math.ceil((state.refreshDueAt - Date.now()) / 1000);
+    if (remaining <= 0) {
+      clearCountdown();
+    } else {
+      dom.nextUpdateLabel.textContent = labels().nextUpdate.replace('{s}', remaining);
+    }
+  }, 1000);
+  state.refreshTimer = setTimeout(() => {
+    if (state.currentStationId) fetchWeather(state.currentStationId);
+  }, seconds * 1000);
 }
 
 function scheduleRefresh(seconds) {
   clearCountdown();
   if (seconds <= 0) return;
-
-  state.countdownValue = seconds;
-  dom.nextUpdateLabel.textContent = labels().nextUpdate.replace('{s}', seconds);
-
-  state.countdownTimer = setInterval(() => {
-    state.countdownValue -= 1;
-    if (state.countdownValue <= 0) {
-      clearCountdown();
-    } else {
-      dom.nextUpdateLabel.textContent = labels().nextUpdate.replace('{s}', state.countdownValue);
-    }
-  }, 1000);
-
-  state.refreshTimer = setTimeout(() => {
-    if (state.currentStationId) fetchWeather(state.currentStationId);
-  }, seconds * 1000);
+  state.refreshDueAt = Date.now() + seconds * 1000;
+  resumeCountdown(seconds);
 }
 
 function labels() {
@@ -551,15 +288,13 @@ function applyLabels() {
   dom.stationSearchBtn.title = L.stationSearch;
   dom.langToggle.title = `Switch to ${L.langToggle}`;
   dom.langToggle.textContent = L.langToggle;
-  if (dom.apiKeyLabel) setText(dom.apiKeyLabel, L.apiKeyLabel);
-  if (dom.cameraLabel) setText(dom.cameraLabel, L.cameraLabel);
-  if (dom.followLocationLabel) setText(dom.followLocationLabel, L.followLocationLabel);
+  setText(dom.apiKeyLabel, L.apiKeyLabel);
+  setText(dom.cameraLabel, L.cameraLabel);
+  setText(dom.followLocationLabel, L.followLocationLabel);
   const hint = document.querySelector('.settings-hint');
   if (hint) hint.textContent = L.apiKeyHint;
-  const settingsSave = dom.settingsSave;
-  if (settingsSave) setText(settingsSave, L.save);
-  const settingsCancel = dom.settingsCancel;
-  if (settingsCancel) setText(settingsCancel, L.cancel);
+  setText(dom.settingsSave, L.save);
+  setText(dom.settingsCancel, L.cancel);
   setText(dom.settingsTitle, L.settingsTitle);
   document.documentElement.lang = state.lang;
 }
@@ -723,6 +458,8 @@ function esc(str) {
     .replace(/>/g, '&gt;');
 }
 
+const escapeHtml = esc;
+
 function forecastGoTo(i) {
   forecastCarousel.index = i;
   const items = forecastCarousel.items;
@@ -787,8 +524,8 @@ function populateStations(stations) {
   const mruStations = mruIds.map(id => byId.get(id)).filter(Boolean);
 
   if (mruStations.length > 0) {
-    const mruLabel = state.lang === 'en' ? 'Recent' : 'Viimeisimmät';
-    const allLabel = state.lang === 'en' ? 'All stations' : 'Kaikki asemat';
+    const mruLabel = labels().mruRecent;
+    const allLabel = labels().mruAll;
     const currentInMru = mruStations.some(s => s.id === state.currentStationId);
 
     const mruGroup = document.createElement('optgroup');
@@ -875,10 +612,6 @@ function renderStationSearchResults() {
     li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') select(); });
     dom.stationSearchResults.appendChild(li);
   }
-}
-
-function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function selectStation(id, name) {
@@ -1138,10 +871,7 @@ async function selectNearestByGeolocation(stations) {
 // ── Bootstrap ────────────────────────────────────────────────
 async function init() {
   await fetchSettings();
-
-  dom.apiKeyLabel = document.querySelector('.modal-body label');
-  dom.cameraLabel = document.querySelector('.camera-setting label');
-  dom.followLocationLabel = document.querySelector('.follow-location-setting label');
+  initCamera(state, dom, labels, setVisible);
   applyLabels();
   initEvents();
 
@@ -1159,5 +889,19 @@ async function init() {
     await selectNearestByGeolocation(stations);
   }
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    pauseCountdown();
+  } else if (state.refreshDueAt !== null) {
+    const remaining = Math.ceil((state.refreshDueAt - Date.now()) / 1000);
+    if (remaining <= 0) {
+      state.refreshDueAt = null;
+      if (state.currentStationId) fetchWeather(state.currentStationId);
+    } else {
+      resumeCountdown(remaining);
+    }
+  }
+});
 
 document.addEventListener('DOMContentLoaded', init);

@@ -21,6 +21,7 @@ No database is used. All observation data is fetched on demand and parsed in mem
 flowchart LR
     subgraph Browser
         UI["index.html + app.js<br/>(vanilla JS SPA)"]
+        CAM["camera.js<br/>(carousel, lightbox)"]
         CONST["constants.js<br/>(UI config)"]
         LS[("localStorage<br/>MRU list")]
         GEO[("Browser<br/>Geolocation API")]
@@ -50,6 +51,8 @@ flowchart LR
 
     UI <-->|fetch JSON| VIEWS
     UI <-->|fetch JSON| DTCam
+    UI --- CAM
+    CAM <-->|fetch JSON + images| DTCam
     UI <--> LS
     UI -->|getCurrentPosition| GEO
     URLS --> VIEWS
@@ -74,7 +77,8 @@ Key source locations:
 - [weather/services/station_info.py](../weather/services/station_info.py) — station catalogue model
 - [weather/services/weather_station.py](../weather/services/weather_station.py) — observation model + derived properties
 - [weather/services/physics.py](../weather/services/physics.py) — FMI feels-like formula
-- [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — SPA logic
+- [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — SPA logic (fetch, render, settings, search, geolocation, forecast)
+- [weather/static/weather/js/camera.js](../weather/static/weather/js/camera.js) — weather camera module (carousel, lightbox, station lookup)
 - [weather/static/weather/js/constants.js](../weather/static/weather/js/constants.js) — UI configuration constants
 - [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) — UI styling and weather camera layout
 
@@ -445,15 +449,28 @@ Related code: [weather/static/weather/js/app.js](../weather/static/weather/js/ap
 
 ## 9. Weather Camera Feature
 
-The frontend displays weather camera images for each station. Camera URLs are fetched from the Digitraffic API alongside observation data.
+The frontend displays weather camera images for each station. Camera logic lives in its own ES module (`camera.js`) and is imported by `app.js`. The module is initialised once on page load via `initCamera(state, dom, labels, setVisible)`, which injects the shared state and DOM references it needs.
 
-### 9.1 Camera carousel
+### 9.1 Module structure
+
+| Export | Description |
+|---|---|
+| `initCamera(state, dom, labels, setVisible)` | One-time setup; stores injected deps |
+| `showCameraForStation(lat, lon)` | Finds the nearest camera, fetches its presets, renders the carousel |
+| `carousel` | `{ index, slides }` — current carousel state |
+| `lightbox` | `{ index }` — current lightbox state |
+| `carouselGoTo(i)` | Navigate the carousel to slide `i` |
+| `lightboxGoTo(i)` | Navigate the lightbox to slide `i` |
+| `openLightbox(i)` | Open the lightbox at slide `i` |
+| `closeLightbox()` | Close the lightbox |
+
+### 9.2 Camera carousel
 
 - Renders camera images in a carousel/gallery layout below the observation card
 - Automatically scales images responsively on different screen sizes
-- Refreshes camera images on the same cadence as observation data
+- Refreshes camera images on the same cadence as observation data (triggered by `app.js` after each weather fetch)
 
-### 9.2 Lightbox
+### 9.3 Lightbox
 
 Clicking any camera image opens a fullscreen-capable lightbox:
 
@@ -462,13 +479,14 @@ Clicking any camera image opens a fullscreen-capable lightbox:
 - **Fullscreen** — the ⛶ button calls `element.requestFullscreen()`; the `fullscreenchange` event updates layout variables (`--fs-w`, `--fs-h`) so slides fill the screen correctly
 - **Dismiss** — Escape key, close button, or clicking outside the slide
 
-### 9.3 Station search modal
+### 9.4 Station search modal
 
-A 🔍 search button next to the station dropdown opens a modal with a text input. Typing filters the full station list client-side (case-insensitive substring match on formatted name). Selecting a result closes the modal and triggers the same station-selection flow as the dropdown (POST settings, update MRU, fetch observations).
+A 🔍 search button next to the station dropdown opens a modal with a text input. Typing filters the full station list client-side (case-insensitive substring match on formatted name). Selecting a result closes the modal and triggers the same station-selection flow as the dropdown (POST settings, update MRU, fetch observations). This logic lives in `app.js`.
 
 Related code:
 
-- [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — camera loading, carousel, lightbox, and station search logic
+- [weather/static/weather/js/camera.js](../weather/static/weather/js/camera.js) — camera module (station lookup, carousel, lightbox)
+- [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — imports camera module; handles station search modal
 - [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) — camera gallery, lightbox, and modal styling
 - [weather/views.py](../weather/views.py) — includes camera data in API response
 

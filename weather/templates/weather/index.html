@@ -264,7 +264,7 @@
           <button id="settings-close" class="btn-icon modal-close">✕</button>
         </div>
         <div class="modal-body">
-          <label for="api-key-input">OpenWeatherMap API-avain:</label>
+          <label id="api-key-label" for="api-key-input">OpenWeatherMap API-avain:</label>
           <input
             id="api-key-input"
             type="text"
@@ -279,12 +279,12 @@
           </p>
 
           <div class="camera-setting">
-            <label for="camera-toggle">Näytä kelikameroiden kuvat:</label>
+            <label id="camera-label" for="camera-toggle">Näytä kelikameroiden kuvat:</label>
             <input id="camera-toggle" type="checkbox" checked />
           </div>
 
           <div class="follow-location-setting">
-            <label for="follow-location-toggle">Käytä sijaintiasi aseman valintaan:</label>
+            <label id="follow-location-label" for="follow-location-toggle">Käytä sijaintiasi aseman valintaan:</label>
             <input id="follow-location-toggle" type="checkbox" />
           </div>
         </div>
@@ -295,7 +295,6 @@
       </div>
     </div>
 
-    <script src="{% static 'weather/js/constants.js' %}"></script>
-    <script src="{% static 'weather/js/app.js' %}"></script>
+    <script type="module" src="{% static 'weather/js/app.js' %}"></script>
   </body>
 </html>

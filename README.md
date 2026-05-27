@@ -243,7 +243,8 @@ weatherview-django/
     │   └── index.html
     ├── static/weather/
     │   ├── css/style.css
-    │   ├── js/app.js           # Vanilla JS frontend
+    │   ├── js/app.js           # Vanilla JS frontend (SPA logic, UI)
+    │   ├── js/camera.js        # Weather camera module (carousel, lightbox)
     │   └── js/constants.js     # UI configuration constants
     └── tests.py                # Offline test suite (mocked HTTP)
 scripts/
