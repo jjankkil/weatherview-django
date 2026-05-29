@@ -238,6 +238,81 @@ class ModelParsingTests(SimpleTestCase):
         self.assertEqual(d["wind_direction"], "etelästä")
         self.assertEqual(d["visibility"], "20 km")
 
+    def test_weather_station_to_dict_english(self):
+        """@brief to_dict(lang='en') returns English wind direction."""
+        ws = WeatherStation()
+        ws.parse(_STATION_DATA_PAYLOAD)
+        d = ws.to_dict(lang="en")
+        self.assertEqual(d["wind_direction"], "from S")
+
+    def test_present_weather_no_sade_sensor(self):
+        """@brief present_weather_localized() returns (False, '') when SADE sensor is absent."""
+        ws = WeatherStation()
+        ws.parse(_STATION_DATA_PAYLOAD)
+        is_precip_fi, text_fi = ws.present_weather_localized("fi")
+        is_precip_en, text_en = ws.present_weather_localized("en")
+        self.assertFalse(is_precip_fi)
+        self.assertEqual(text_fi, "")
+        self.assertFalse(is_precip_en)
+        self.assertEqual(text_en, "")
+
+    def test_present_weather_dry(self):
+        """@brief present_weather_localized() returns is_precipitation=False and translates 'Pouta' to 'Dry'."""
+        payload = {**_STATION_DATA_PAYLOAD, "sensorValues": [
+            {"id": 22, "stationId": 12345, "name": "SADE", "shortName": "Sade",
+             "measuredTime": "2026-05-12T12:50:00Z", "value": 0.0,
+             "sensorValueDescriptionFi": "Pouta"},
+        ]}
+        ws = WeatherStation()
+        ws.parse(payload)
+        is_precip_fi, text_fi = ws.present_weather_localized("fi")
+        is_precip_en, text_en = ws.present_weather_localized("en")
+        self.assertFalse(is_precip_fi)
+        self.assertEqual(text_fi, "Pouta")
+        self.assertFalse(is_precip_en)
+        self.assertEqual(text_en, "Dry")
+
+    def test_present_weather_precipitation(self):
+        """@brief present_weather_localized() returns is_precipitation=True when value >= 1."""
+        payload = {**_STATION_DATA_PAYLOAD, "sensorValues": [
+            {"id": 22, "stationId": 12345, "name": "SADE", "shortName": "Sade",
+             "measuredTime": "2026-05-12T12:50:00Z", "value": 2.0,
+             "sensorValueDescriptionFi": "Kohtalainen"},
+        ]}
+        ws = WeatherStation()
+        ws.parse(payload)
+        is_precip_fi, text_fi = ws.present_weather_localized("fi")
+        is_precip_en, text_en = ws.present_weather_localized("en")
+        self.assertTrue(is_precip_fi)
+        self.assertEqual(text_fi, "Kohtalainen")
+        self.assertTrue(is_precip_en)
+        self.assertEqual(text_en, "Moderate rain")
+
+    def test_present_weather_snow(self):
+        """@brief present_weather_localized() returns is_precipitation=True and translates snow/sleet."""
+        payload = {**_STATION_DATA_PAYLOAD, "sensorValues": [
+            {"id": 22, "stationId": 12345, "name": "SADE", "shortName": "Sade",
+             "measuredTime": "2026-05-12T12:50:00Z", "value": 4.0,
+             "sensorValueDescriptionFi": "Heikko lumi/räntä"},
+        ]}
+        ws = WeatherStation()
+        ws.parse(payload)
+        is_precip_en, text_en = ws.present_weather_localized("en")
+        self.assertTrue(is_precip_en)
+        self.assertEqual(text_en, "Light snow/sleet")
+
+    def test_present_weather_unknown_fi_string_falls_back(self):
+        """@brief present_weather_localized() falls back to Finnish text for unknown values."""
+        payload = {**_STATION_DATA_PAYLOAD, "sensorValues": [
+            {"id": 22, "stationId": 12345, "name": "SADE", "shortName": "Sade",
+             "measuredTime": "2026-05-12T12:50:00Z", "value": 1.0,
+             "sensorValueDescriptionFi": "Tuntematon"},
+        ]}
+        ws = WeatherStation()
+        ws.parse(payload)
+        _, text_en = ws.present_weather_localized("en")
+        self.assertEqual(text_en, "Tuntematon")
+
 
 # ── View / API endpoints ────────────────────────────────────
 class ViewTests(SimpleTestCase):

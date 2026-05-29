@@ -209,7 +209,7 @@ sudo systemctl restart weatherview
 | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | Station dropdown         | Pick any station. Most-recently-used 5 are grouped at the top.                                                  |
 | 🔍 Search button         | Open a search modal — type any part of a station name to filter and select it.                                  |
-| 🌐 Top-right button      | Toggle between Finnish and English labels.                                                                      |
+| 🌐 Top-right button      | Toggle between Finnish and English. Labels, wind direction, and weather condition values all switch language.   |
 | ⚙️ Top-right button      | Open settings (OpenWeatherMap API key, camera toggle, use-my-location toggle).                                  |
 | **Päivitä nyt** button   | Force an immediate refresh.                                                                                     |
 | _Seuraava päivitys: N s_ | Countdown to the next automatic refresh.                                                                        |

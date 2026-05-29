@@ -23,6 +23,8 @@ const LABELS = {
     dewPoint: 'Kastepiste:',
     roadTemp: 'Tien pintalämpötila:',
     visibility: 'Näkyvyys:',
+    weather: 'Säätila:',
+    precipitation: 'Sade:',
     forecastTitle: 'Ennuste',
     refresh: 'Päivitä nyt',
     loading: 'Ladataan…',
@@ -61,6 +63,8 @@ const LABELS = {
     dewPoint: 'Dew point:',
     roadTemp: 'Road surface temp:',
     visibility: 'Visibility:',
+    weather: 'Weather:',
+    precipitation: 'Precipitation:',
     forecastTitle: 'Forecast',
     refresh: 'Refresh now',
     loading: 'Loading…',
@@ -428,11 +432,12 @@ function renderWeather(data) {
   setVisible(dom.visibilityRow, !!data.visibility);
   setText(dom.visibilityValue, data.visibility);
 
-  // Present weather - label comes from backend
+  // Present weather - label type comes from backend
   const hasPW = !!data.present_weather;
   setVisible(dom.pwRow, hasPW);
   if (hasPW) {
-    setText(dom.pwLabel, data.present_weather_label || labels().fi?.weather || 'Säätila:');
+    const L = labels();
+    setText(dom.pwLabel, data.present_weather_is_precipitation ? L.precipitation : L.weather);
     setText(dom.pwValue, data.present_weather);
   }
 
@@ -635,9 +640,9 @@ function initEvents() {
     if (state.currentStationId) fetchWeather(state.currentStationId);
   });
 
-  dom.langToggle.addEventListener('click', () => {
+  dom.langToggle.addEventListener('click', async () => {
     state.lang = state.lang === 'fi' ? 'en' : 'fi';
-    saveSettings({ language: state.lang });
+    await saveSettings({ language: state.lang });
     applyLabels();
     if (state.stations.length > 0) populateStations(state.stations);
     if (state.currentStationId) fetchWeather(state.currentStationId);

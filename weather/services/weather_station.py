@@ -306,27 +306,41 @@ class WeatherStation:
         """
         return fmi_feels_like_temperature(self.wind_speed, self.air_humidity, self.air_temperature)
 
-    @property
-    def present_weather(self) -> tuple[str, str]:
-        """Get the current weather condition (precipitation or general description).
+    # Digitraffic sensorValueDescriptionFi → English translations for SADE sensor
+    _SADE_FI_TO_EN = {
+        "Pouta": "Dry",
+        "Heikko": "Light rain",
+        "Kohtalainen": "Moderate rain",
+        "Runsas": "Heavy rain",
+        "Heikko lumi/räntä": "Light snow/sleet",
+        "Kohtalainen lumi/räntä": "Moderate snow/sleet",
+        "Runsas lumi/räntä": "Heavy snow/sleet",
+    }
 
-        Returns a tuple of (label, description) describing current weather. Label indicates
-        type of weather, and description provides Finnish localized text.
+    def present_weather_localized(self, lang: str = "fi") -> tuple[bool, str]:
+        """Get the current weather condition value and precipitation flag.
 
-        @return Tuple of (label_string, description_string):
-                - If precipitation detected: ("Sade:", weather_description)
-                - If no precipitation: ("Säätila:", weather_description or empty)
-                - If sensor missing: ("Säätila:", "")
-        @details
-        - Looks up "SADE" sensor for precipitation data
-        - Classifies as rain if sensor value >= 1.0
-        - Uses sensor_value_description for Finnish condition text
+        @param lang Language code ("fi" or "en").
+        @return Tuple of (is_precipitation, description_string).
+                is_precipitation is True when sensor value >= 1.0 (active precipitation).
+                description_string is localized condition text, or empty if sensor absent.
         """
         s = self._find("SADE")
         if s is None:
-            return "Säätila:", ""
-        label = "Sade:" if s.value >= 1.0 else "Säätila:"
-        return label, s.sensor_value_description
+            return False, ""
+        is_precipitation = s.value >= 1.0
+        fi_text = s.sensor_value_description
+        if lang == "en":
+            return is_precipitation, self._SADE_FI_TO_EN.get(fi_text, fi_text)
+        return is_precipitation, fi_text
+
+    @property
+    def present_weather(self) -> tuple[bool, str]:
+        """Get the current weather condition in Finnish (legacy property).
+
+        @return Tuple of (is_precipitation, description_string) in Finnish.
+        """
+        return self.present_weather_localized("fi")
 
     @property
     def seconds_until_next_update(self) -> int:
@@ -378,13 +392,13 @@ class WeatherStation:
                 - dew_point: formatted dew point temperature from KASTEPISTE sensor or empty
                 - road_temperature: formatted road surface temperature or empty
                 - visibility: formatted visibility (e.g., "5 km") or empty
-                - present_weather_label: weather category label ("Sade:" or "Säätila:") or empty
-                - present_weather: Finnish weather condition description or empty
+                - present_weather_label: localized weather category label (e.g. "Sade:" / "Precipitation:") or empty
+                - present_weather: localized weather condition description or empty
                 - seconds_until_next_update: integer seconds until next polling expected
         @details
         - Timestamp formatted as "DD.MM.YYYY HH:MM" in Finnish format
         - All values use Constants.INVALID_VALUE to detect missing data
-        - Wind direction translation uses lang parameter via @ref wind_direction_as_text
+        - Wind direction and present weather are translated via lang parameter
         - Formatted values include units; raw values omit units
         - Returns both formatted and raw numeric values for flexibility
         """
@@ -392,7 +406,7 @@ class WeatherStation:
         feels = self.feels_like
         wind = self.wind_speed
         wind_dir = self.wind_direction
-        pw_label, pw_text = self.present_weather
+        pw_is_precip, pw_text = self.present_weather_localized(lang)
 
         wind_dir_text = wind_direction_as_text(
             wind_dir if wind_dir != Constants.INVALID_VALUE else None, lang
@@ -421,7 +435,7 @@ class WeatherStation:
             "dew_point": self.get_formatted("KASTEPISTE"),
             "road_temperature": f"{self.road_temperature} °C" if self.road_temperature != Constants.INVALID_VALUE else "",
             "visibility": self.visibility_str,
-            "present_weather_label": pw_label,
+            "present_weather_is_precipitation": pw_is_precip,
             "present_weather": pw_text,
             "seconds_until_next_update": self.seconds_until_next_update,
         }

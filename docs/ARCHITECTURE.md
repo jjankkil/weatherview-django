@@ -140,6 +140,7 @@ classDiagram
         +visibility_str: str
         +feels_like: float
         +present_weather: tuple
+        +present_weather_localized(lang) tuple
         +seconds_until_next_update: int
         +to_dict(lang) dict
     }
@@ -550,4 +551,4 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 - **Sessions**: Django signed-cookie backend. No server-side session store needed; rotating `SECRET_KEY` invalidates all stored settings.
 - **Cache backend**: Default is in-process `LocMemCache`. Swap to Redis/Memcached if running multiple workers and you want a single shared station list.
 - **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py:28](../weather/services/weather_service.py#L28)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as a HTTP 502 to the client with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner and schedules an automatic retry after 60 seconds.
-- **i18n**: Language is a string flag (`fi`/`en`) passed through to `WeatherStation.to_dict` and `wind_direction_as_text`. No Django `gettext` machinery is involved.
+- **i18n**: Language is a string flag (`fi`/`en`) passed through to `WeatherStation.to_dict`, which calls `wind_direction_as_text` and `present_weather_localized` for server-side translation. Present weather labels ("Säätila:" / "Weather:", "Sade:" / "Precipitation:") and Digitraffic SADE sensor condition strings (e.g. "Pouta" → "Dry") are translated via a lookup table in `WeatherStation`. No Django `gettext` machinery is involved.
