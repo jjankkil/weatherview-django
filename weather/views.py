@@ -51,7 +51,7 @@ _DEFAULT_SETTINGS = {  #!< Default settings applied to all sessions
     "current_station_id": None,  #!< Currently selected station (FMI station ID)
     "current_station_name": "",  #!< Display name of currently selected station
     "openweathermap_api_key": "",  #!< OpenWeatherMap API key for additional weather data
-    "language": "fi",  #!< Display language ("fi" for Finnish, "en" for English)
+    "language": "fi",  #!< Display language ("fi" for Finnish, "sv" for Swedish, "en" for English)
     "show_camera": True,  #!< Whether to display weather camera images (default: enabled)
     "follow_location": False,  #!< Whether to always use geolocation to select the nearest station
 }

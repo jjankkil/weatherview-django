@@ -81,6 +81,57 @@ html, body {
 }
 .btn-icon:hover { background: var(--border); border-color: var(--accent); }
 
+/* ── Language dropdown ────────────────────────────────────── */
+.lang-dropdown {
+  position: relative;
+}
+.lang-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 14px;
+  font-family: var(--font);
+  height: 40px;
+  padding: 0 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.lang-btn:hover { background: var(--border); border-color: var(--accent); }
+.lang-btn:focus { outline: none; border-color: var(--accent); }
+.lang-btn-arrow { font-size: 10px; color: var(--text-muted); margin-left: 2px; }
+.lang-list {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  list-style: none;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  min-width: 130px;
+  z-index: 200;
+  overflow: hidden;
+}
+.lang-dropdown.open .lang-list { display: block; }
+.lang-dropdown.open .lang-btn { border-color: var(--accent); }
+.lang-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.12s;
+}
+.lang-option:hover { background: var(--border); }
+.lang-option.selected { color: var(--accent2); }
+
 /* ── Station section ──────────────────────────────────────── */
 .station-section {
   margin-bottom: 20px;

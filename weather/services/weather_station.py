@@ -316,11 +316,20 @@ class WeatherStation:
         "Kohtalainen lumi/räntä": "Moderate snow/sleet",
         "Runsas lumi/räntä": "Heavy snow/sleet",
     }
+    _SADE_FI_TO_SV = {
+        "Pouta": "Torrt",
+        "Heikko": "Lätt regn",
+        "Kohtalainen": "Måttligt regn",
+        "Runsas": "Kraftigt regn",
+        "Heikko lumi/räntä": "Lätt snö/slask",
+        "Kohtalainen lumi/räntä": "Måttlig snö/slask",
+        "Runsas lumi/räntä": "Kraftig snö/slask",
+    }
 
     def present_weather_localized(self, lang: str = "fi") -> tuple[bool, str]:
         """Get the current weather condition value and precipitation flag.
 
-        @param lang Language code ("fi" or "en").
+        @param lang Language code ("fi", "en", or "sv").
         @return Tuple of (is_precipitation, description_string).
                 is_precipitation is True when sensor value >= 1.0 (active precipitation).
                 description_string is localized condition text, or empty if sensor absent.
@@ -332,6 +341,8 @@ class WeatherStation:
         fi_text = s.sensor_value_description
         if lang == "en":
             return is_precipitation, self._SADE_FI_TO_EN.get(fi_text, fi_text)
+        if lang == "sv":
+            return is_precipitation, self._SADE_FI_TO_SV.get(fi_text, fi_text)
         return is_precipitation, fi_text
 
     @property

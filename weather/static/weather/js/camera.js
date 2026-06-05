@@ -1,6 +1,6 @@
 'use strict';
 
-import { CAMERA_STATIONS_URL, CAMERA_IMAGE_BASE, DIRECTIONS_FI, DIRECTIONS_EN } from './constants.js';
+import { CAMERA_STATIONS_URL, CAMERA_IMAGE_BASE, DIRECTIONS_FI, DIRECTIONS_EN, DIRECTIONS_SV } from './constants.js';
 
 // ── Module-level deps injected by init() ─────────────────────
 let _state, _dom, _labels, _setVisible;
@@ -40,7 +40,7 @@ function bearingDeg(lat1, lon1, lat2, lon2) {
 }
 
 function bearingLabel(deg, lang) {
-  const dirs = lang === 'en' ? DIRECTIONS_EN : DIRECTIONS_FI;
+  const dirs = lang === 'en' ? DIRECTIONS_EN : lang === 'sv' ? DIRECTIONS_SV : DIRECTIONS_FI;
   return dirs[Math.round(deg / 45) % 8];
 }
 
@@ -80,7 +80,7 @@ export function carouselGoTo(i) {
   if (slide) {
     const L = _labels();
     const now = new Date();
-    const timeStr = now.toLocaleTimeString(_state.lang === 'en' ? 'en-GB' : 'fi-FI');
+    const timeStr = now.toLocaleTimeString(_state.lang === 'en' ? 'en-GB' : _state.lang === 'sv' ? 'sv-SE' : 'fi-FI');
     const loadedStr = `${L.cameraLoaded} ${timeStr}`;
     _dom.cameraUpdated.textContent = slide.loaded
       ? (slide.presentationName ? `${loadedStr} · ${L.cameraDirection} ${slide.presentationName}` : loadedStr)

@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tiesää – Road Weather</title>
     <link rel="stylesheet" href="{% static 'weather/css/style.css' %}" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.5.0/css/flag-icons.min.css" />
   </head>
   <body>
     <div id="app">
@@ -16,9 +17,18 @@
           <h1 id="app-title">Tiesää</h1>
         </div>
         <div class="header-controls">
-          <button id="lang-toggle" class="btn-icon" title="Toggle language">
-            🌐
-          </button>
+          <div id="lang-dropdown" class="lang-dropdown" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+            <button id="lang-btn" class="lang-btn" type="button" aria-label="Select language">
+              <span class="fi fi-fi"></span>
+              <span class="lang-btn-label">Suomi</span>
+              <span class="lang-btn-arrow">▾</span>
+            </button>
+            <ul id="lang-list" class="lang-list" role="listbox" aria-label="Language">
+              <li class="lang-option" data-value="fi" role="option"><span class="fi fi-fi"></span> Suomi</li>
+              <li class="lang-option" data-value="sv" role="option"><span class="fi fi-se"></span> Svenska</li>
+              <li class="lang-option" data-value="en" role="option"><span class="fi fi-gb"></span> English</li>
+            </ul>
+          </div>
           <button id="settings-btn" class="btn-icon" title="Settings">
             ⚙️
           </button>

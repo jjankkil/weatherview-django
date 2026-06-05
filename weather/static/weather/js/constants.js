@@ -24,3 +24,6 @@ export const DIRECTIONS_FI = ['pohjoiseen','koilliseen','itään','kaakkoon','et
 
 /** @brief Cardinal and intercardinal direction names in English, clockwise from north. */
 export const DIRECTIONS_EN = ['north','northeast','east','southeast','south','southwest','west','northwest'];
+
+/** @brief Cardinal and intercardinal direction names in Swedish, clockwise from north. */
+export const DIRECTIONS_SV = ['norr','nordost','öst','sydost','söder','sydväst','väst','nordväst'];

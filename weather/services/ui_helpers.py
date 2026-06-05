@@ -104,7 +104,12 @@ def wind_direction_as_text(degrees, lang="fi") -> str:
         "S": "from S", "SW": "from SW", "W": "from W",
         "NW": "from NW", "N": "from N",
     }
-    labels = en if lang == "en" else fi
+    sv = {
+        "NE": "från NO", "E": "från Ö", "SE": "från SO",
+        "S": "från S", "SW": "från SV", "W": "från V",
+        "NW": "från NV", "N": "från N",
+    }
+    labels = en if lang == "en" else sv if lang == "sv" else fi
 
     if 22.5 <= degrees < 67.5:
         key = "NE"

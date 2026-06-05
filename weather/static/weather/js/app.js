@@ -42,7 +42,6 @@ const LABELS = {
     mruAll: 'Kaikki asemat',
     save: 'Tallenna',
     cancel: 'Peruuta',
-    langToggle: 'EN',
     stationSearch: 'Etsi sääasema',
     stationSearchPlaceholder: 'Kirjoita aseman nimi…',
     stationNoResults: 'Ei tuloksia',
@@ -82,7 +81,45 @@ const LABELS = {
     mruAll: 'All stations',
     save: 'Save',
     cancel: 'Cancel',
-    langToggle: 'FI',
+  },
+  sv: {
+    appTitle: 'Vägväder',
+    stationLabel: 'Väderstation:',
+    obsTime: 'Observationstid:',
+    temperature: 'Temperatur:',
+    feelsLike: 'Känns som:',
+    tempChange: 'Temperaturändring:',
+    wind: 'Vindhastighet (medelv.):',
+    windDir: 'Vindriktning:',
+    windMax: 'Maxvind:',
+    humidity: 'Luftfuktighet:',
+    dewPoint: 'Daggpunkt:',
+    roadTemp: 'Vägytans temperatur:',
+    visibility: 'Sikt:',
+    weather: 'Väder:',
+    precipitation: 'Nederbörd:',
+    forecastTitle: 'Prognos',
+    refresh: 'Uppdatera nu',
+    loading: 'Laddar…',
+    loadingStations: '— Laddar stationer… —',
+    nextUpdate: 'Nästa uppdatering: {s} s',
+    settingsTitle: 'Inställningar',
+    apiKeyLabel: 'OpenWeatherMap API-nyckel:',
+    apiKeyHint: 'API-nyckel krävs för vädersymboler och prognos. Registrera dig gratis på openweathermap.org.',
+    cameraLabel: 'Visa vägkamerabilder:',
+    followLocationLabel: 'Använd min plats för stationsval:',
+    cameraLoaded: 'Laddad',
+    cameraDirection: 'Riktning',
+    cameraImageUnavailable: 'Bild ej tillgänglig',
+    mruRecent: 'Senaste',
+    mruAll: 'Alla stationer',
+    save: 'Spara',
+    cancel: 'Avbryt',
+    stationSearch: 'Sök väderstation',
+    stationSearchPlaceholder: 'Skriv stationens namn…',
+    stationNoResults: 'Inga resultat',
+    serviceError: 'Väderdatatjänsten svarar inte (fel {code}). Försöker igen snart.',
+    networkError: 'Nätverksfel. Kontrollera din anslutning.',
     stationSearch: 'Search weather station',
     stationSearchPlaceholder: 'Type station name…',
     stationNoResults: 'No results',
@@ -94,6 +131,7 @@ const LABELS = {
 // Weekday abbreviations indexed by Date.getDay() (0=Sun)
 const WEEKDAYS_FI = ['Su', 'Ma', 'Ti', 'Ke', 'To', 'Pe', 'La'];
 const WEEKDAYS_EN = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const WEEKDAYS_SV = ['Sö', 'Må', 'Ti', 'On', 'To', 'Fr', 'Lö'];
 
 // ── State ───────────────────────────────────────────────────
 /**
@@ -176,7 +214,10 @@ const dom = {
   refreshBtn:     $('refresh-btn'),
   refreshLabel:   $('refresh-label'),
   nextUpdateLabel:$('next-update-label'),
-  langToggle:     $('lang-toggle'),
+  langDropdown:   $('lang-dropdown'),
+  langBtn:        $('lang-btn'),
+  langBtnLabel:   $('lang-btn').querySelector('.lang-btn-label'),
+  langOptions:    $('lang-list').querySelectorAll('.lang-option'),
   settingsBtn:    $('settings-btn'),
   stationSearchBtn:     $('station-search-btn'),
   stationSearchModal:   $('station-search-modal'),
@@ -272,6 +313,19 @@ function labels() {
   return LABELS[state.lang];
 }
 
+const LANG_FLAGS = { fi: 'fi-fi', sv: 'fi-se', en: 'fi-gb' };
+const LANG_NAMES = { fi: 'Suomi', sv: 'Svenska', en: 'English' };
+
+function syncLangDropdown() {
+  const flagClass = LANG_FLAGS[state.lang] || 'fi-fi';
+  const flagEl = dom.langBtn.querySelector('.fi');
+  flagEl.className = `fi ${flagClass}`;
+  dom.langBtnLabel.textContent = LANG_NAMES[state.lang] || state.lang;
+  dom.langOptions.forEach(opt => {
+    opt.classList.toggle('selected', opt.dataset.value === state.lang);
+  });
+}
+
 function applyLabels() {
   const L = labels();
   setText(dom.appTitle, L.appTitle);
@@ -290,8 +344,7 @@ function applyLabels() {
   setText(dom.forecastTitle, L.forecastTitle);
   setText(dom.refreshLabel, L.refresh);
   dom.stationSearchBtn.title = L.stationSearch;
-  dom.langToggle.title = `Switch to ${L.langToggle}`;
-  dom.langToggle.textContent = L.langToggle;
+  syncLangDropdown();
   setText(dom.apiKeyLabel, L.apiKeyLabel);
   setText(dom.cameraLabel, L.cameraLabel);
   setText(dom.followLocationLabel, L.followLocationLabel);
@@ -469,7 +522,7 @@ function forecastGoTo(i) {
   forecastCarousel.index = i;
   const items = forecastCarousel.items;
   const today = new Date().toISOString().slice(0, 10);
-  const weekdays = state.lang === 'en' ? WEEKDAYS_EN : WEEKDAYS_FI;
+  const weekdays = state.lang === 'en' ? WEEKDAYS_EN : state.lang === 'sv' ? WEEKDAYS_SV : WEEKDAYS_FI;
   dom.forecastItems.innerHTML = '';
   const page = items.slice(i, i + FORECAST_PAGE_SIZE);
   for (const f of page) {
@@ -640,12 +693,29 @@ function initEvents() {
     if (state.currentStationId) fetchWeather(state.currentStationId);
   });
 
-  dom.langToggle.addEventListener('click', async () => {
-    state.lang = state.lang === 'fi' ? 'en' : 'fi';
-    await saveSettings({ language: state.lang });
-    applyLabels();
-    if (state.stations.length > 0) populateStations(state.stations);
-    if (state.currentStationId) fetchWeather(state.currentStationId);
+  dom.langBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dom.langDropdown.classList.toggle('open');
+    dom.langDropdown.setAttribute('aria-expanded', dom.langDropdown.classList.contains('open'));
+  });
+
+  dom.langOptions.forEach(opt => {
+    opt.addEventListener('click', async () => {
+      state.lang = opt.dataset.value;
+      dom.langDropdown.classList.remove('open');
+      dom.langDropdown.setAttribute('aria-expanded', 'false');
+      await saveSettings({ language: state.lang });
+      applyLabels();
+      if (state.stations.length > 0) populateStations(state.stations);
+      if (state.currentStationId) fetchWeather(state.currentStationId);
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!dom.langDropdown.contains(e.target)) {
+      dom.langDropdown.classList.remove('open');
+      dom.langDropdown.setAttribute('aria-expanded', 'false');
+    }
   });
 
   dom.forecastPrev.addEventListener('click', () => {
