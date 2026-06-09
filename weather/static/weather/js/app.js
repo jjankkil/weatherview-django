@@ -283,13 +283,15 @@ function resumeCountdown(seconds) {
   state.countdownTimer = setInterval(() => {
     const remaining = Math.ceil((state.refreshDueAt - Date.now()) / 1000);
     if (remaining <= 0) {
-      clearCountdown();
+      clearInterval(state.countdownTimer);
+      state.countdownTimer = null;
+      dom.nextUpdateLabel.textContent = '';
     } else {
       dom.nextUpdateLabel.textContent = labels().nextUpdate.replace('{s}', remaining);
     }
   }, 1000);
   state.refreshTimer = setTimeout(() => {
-    if (state.currentStationId) fetchWeather(state.currentStationId);
+    if (state.currentStationId) fetchWeather(state.currentStationId, true);
   }, seconds * 1000);
 }
 
@@ -399,7 +401,7 @@ async function fetchStations() {
   }
 }
 
-async function fetchWeather(stationId) {
+async function fetchWeather(stationId, fresh = false) {
   if (state.loading) return;
   state.loading = true;
   clearCountdown();
@@ -409,7 +411,8 @@ async function fetchWeather(stationId) {
   hideError();
 
   try {
-    const r = await fetch(`/api/station/${stationId}/`);
+    const url = fresh ? `/api/station/${stationId}/?refresh=1` : `/api/station/${stationId}/`;
+    const r = await fetch(url);
 
     if (!r.ok) {
       let msg;
@@ -955,7 +958,7 @@ document.addEventListener('visibilitychange', () => {
     const remaining = Math.ceil((state.refreshDueAt - Date.now()) / 1000);
     if (remaining <= 0) {
       state.refreshDueAt = null;
-      if (state.currentStationId) fetchWeather(state.currentStationId);
+      if (state.currentStationId) fetchWeather(state.currentStationId, true);
     } else {
       resumeCountdown(remaining);
     }

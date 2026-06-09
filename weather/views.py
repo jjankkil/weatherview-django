@@ -11,17 +11,20 @@ Views handle caching of station lists, weather service requests, and session-bas
 import json
 import math
 import time
+from datetime import timezone
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import render
 from django.core.cache import cache
+from django.utils import timezone as dj_tz
 
 from .services.weather_service import WeatherService
 from .services.station_info import WeatherStationList
 
 _STATION_CACHE_KEY = 'weather_station_list'  #!< Cache key for the FMI station list
+_STATION_DATA_KEY = 'station_data:{}'  #!< Per-station cache key template; formatted with station_id
 
 def _parse_rate(rate: str) -> tuple[int, int]:
     """Parse a rate string like '15/m' into (count, window_seconds)."""
@@ -155,8 +158,8 @@ def api_station_data(request, station_id: int):
     """Get current weather data for a specific station.
 
     HTTP GET endpoint that retrieves comprehensive weather data combining FMI observations
-    with optional OpenWeatherMap current conditions and forecast. Uses user's stored
-    OpenWeatherMap API key and language preference.
+    with optional OpenWeatherMap current conditions and forecast. Serves cached data when
+    a fresh Digitraffic response is not yet expected, to minimise outbound requests.
 
     @param request Django request object with user session.
     @param station_id FMI station ID from URL path parameter.
@@ -168,11 +171,17 @@ def api_station_data(request, station_id: int):
               when Digitraffic returns a 5xx response. Safe to display directly in the UI.
     @details
     - HTTP method: GET
-    - User's OpenWeatherMap API key from session settings (optional)
     - Display language from session settings (default: Finnish)
     - Returns HTTP 502 (Bad Gateway) if station not found or FMI API fails
     - If no OpenWeatherMap API key: returns FMI data only (no weather symbols/forecast)
     - Forecast covers all OWM 3-hour periods up to (but not including) today + 3 days
+    - Per-station response cache (key: 'station_data:{id}'): on a cache hit the cached
+      response is served immediately unless the request carries ?refresh=1 (sent by the
+      frontend countdown timer when new data is due). On a miss or ?refresh=1, fresh data
+      is fetched from Digitraffic and cached with a TTL derived from next_update_at (+30 s
+      safety margin). seconds_until_next_update is recomputed from _next_update_at when
+      serving from cache so the frontend always receives the accurate remaining wait time.
+      The internal _next_update_at field is stripped before the response is sent to the client.
     """
     ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')).split(',')[0].strip()
     if _is_rate_limited(ip):
@@ -183,11 +192,30 @@ def api_station_data(request, station_id: int):
 
     station_list = _get_station_list()
 
+    cache_key = _STATION_DATA_KEY.format(station_id)
+    want_fresh = request.GET.get('refresh') == '1'
+    cached = cache.get(cache_key)
+    if cached is not None and not want_fresh:
+        now = dj_tz.now()
+        next_update_at = cached.get("_next_update_at")
+        remaining = max(0, int((next_update_at - now).total_seconds())) if next_update_at else 60
+        response = {k: v for k, v in cached.items() if k != "_next_update_at"}
+        response["seconds_until_next_update"] = remaining
+        return JsonResponse(response)
+
     service = WeatherService()
     data = service.build_full_weather_response(station_id, station_list, lang)
     if "error" in data:
         return JsonResponse(data, status=502)
-    return JsonResponse(data)
+
+    next_update_at = data.get("_next_update_at")
+    ttl = 600
+    if next_update_at is not None:
+        ttl = max(10, int((next_update_at - dj_tz.now()).total_seconds()) + 30)
+    cache.set(cache_key, data, ttl)
+
+    response = {k: v for k, v in data.items() if k != "_next_update_at"}
+    return JsonResponse(response)
 
 
 @require_http_methods(["GET"])

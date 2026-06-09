@@ -18,7 +18,7 @@ class Constants:
     """
     FORECAST_CNT = 3  #!< Legacy constant (no longer used for forecast slicing; kept for reference)
     STATION_UPDATE_DELAY_S = 60  #!< Delay in seconds before checking for new station data
-    DEFAULT_POLLING_INTERVAL_S = 60  #!< Default polling interval when update timing is unknown
+    DEFAULT_POLLING_INTERVAL_S = 300  #!< Default polling interval when update timing is unknown (5 min)
     INVALID_VALUE = -999.0  #!< Sentinel value indicating missing or invalid measurement
     MISSING_UNIT = ["///", "???"]  #!< Unit string values that indicate missing data
 

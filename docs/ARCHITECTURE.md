@@ -9,7 +9,7 @@ This document describes the structure and runtime behavior of `weatherview-djang
 `weatherview-django` is a Django-served single-page application that visualizes live road weather observations from **Fintraffic / Digitraffic** and an optional short-range forecast from **OpenWeatherMap (OWM)**. The server is stateless apart from:
 
 - a **signed-cookie session** holding per-user UI preferences, and
-- an **in-process cache** holding the parsed station list (TTL ≈ 5 minutes) and IP rate-limit counters.
+- an **in-process cache** holding the parsed station list (TTL ≈ 5 min), per-station observation responses (TTL derived from each station's update cadence), and IP rate-limit counters.
 
 No database is used. All observation data is fetched on demand and parsed in memory.
 
@@ -31,7 +31,7 @@ flowchart LR
         URLS["urls.py<br/>(root + weather)"]
         VIEWS["weather/views.py<br/>JSON endpoints"]
         SESSION[("Signed-cookie<br/>session")]
-        CACHE[("LocMem cache<br/>'weather_station_list'")]
+        CACHE[("LocMem cache<br/>'weather_station_list'<br/>'station_data:{id}'")]
     end
 
     subgraph Services["weather/services/"]
@@ -128,7 +128,6 @@ classDiagram
     class WeatherStation {
         -sensors: list~Sensor~
         -_latest_time: datetime
-        -_previous_time: datetime
         +parse(json) bool
         +observation_time: datetime
         +air_temperature: float
@@ -224,6 +223,7 @@ sequenceDiagram
     autonumber
     participant Browser
     participant View as api_station_data
+    participant SC as LocMem cache<br/>(station_data:{id})
     participant WS as WeatherService
     participant DT as Digitraffic<br/>(weather data)
     participant OWM as OpenWeatherMap
@@ -232,21 +232,29 @@ sequenceDiagram
     View->>View: _is_rate_limited(ip) → 429 if exceeded
     View->>View: _get_settings(request)
     View->>View: _get_station_list() (cache)
-    View->>WS: build_full_weather_response(id, list, lang)
-    WS->>DT: GET /stations/{id}/data
-    DT-->>WS: {dataUpdatedTime, sensorValues:[...]}
-    WS->>WS: WeatherStation.parse → derive temp/wind/feels-like/road-temp/visibility/dew-point/humidity
-    alt OPENWEATHER_API_KEY set in settings
-        WS->>OWM: GET /weather?q=city
-        alt city lookup fails
-            WS->>OWM: GET /weather?lat&lon (fallback)
+    View->>SC: get('station_data:23819')
+    alt cache hit and request has no ?refresh=1
+        SC-->>View: cached response dict
+        View->>View: recompute seconds_until_next_update from _next_update_at
+        View-->>Browser: 200 JSON (no Digitraffic call)
+    else cache miss or ?refresh=1
+        View->>WS: build_full_weather_response(id, list, lang)
+        WS->>DT: GET /stations/{id}/data
+        DT-->>WS: {dataUpdatedTime, sensorValues:[...]}
+        WS->>WS: WeatherStation.parse → derive temp/wind/feels-like/road-temp/visibility/dew-point/humidity
+        alt OPENWEATHER_API_KEY set in settings
+            WS->>OWM: GET /weather?q=city
+            alt city lookup fails
+                WS->>OWM: GET /weather?lat&lon (fallback)
+            end
+            OWM-->>WS: current weather (id → symbol)
+            WS->>OWM: GET /forecast?lat&lon
+            OWM-->>WS: 3-hour forecast list (all periods, filtered to 3-day window)
         end
-        OWM-->>WS: current weather (id → symbol)
-        WS->>OWM: GET /forecast?lat&lon
-        OWM-->>WS: 3-hour forecast list (all periods, filtered to 3-day window)
+        WS-->>View: dict (station_name, temperature, ..., _next_update_at, forecast[])
+        View->>SC: set(response, ttl = next_update_at - now + 30s)
+        View-->>Browser: 200 JSON (or 502 on upstream error)
     end
-    WS-->>View: dict (station_name, temperature, ..., forecast[])
-    View-->>Browser: 200 JSON   (or 502 on upstream error)
     Browser->>Browser: paint card, start countdown
 ```
 
@@ -286,23 +294,12 @@ sequenceDiagram
 
 ### 5.4 Adaptive refresh cadence
 
-Each station has its own observation cadence. `WeatherStation` tracks two `dataUpdatedTime` values:
+`WeatherStation` exposes two derived properties based on the latest observation timestamp:
 
-```mermaid
-stateDiagram-v2
-    [*] --> FirstFetch
-    FirstFetch --> Bootstrapped: parse() sets _latest = _previous = obs_time
-    Bootstrapped --> Stable: next parse() with obs_time != _previous<br/>shifts (_previous, _latest)
-    Stable --> Stable: interval = |_latest - _previous|
-    note right of Stable
-      seconds_until_next_update =
-        clamp( interval - (now - _latest) + delay, 0..600 )
-      Falls back to DEFAULT_POLLING_INTERVAL_S
-      while still bootstrapping.
-    end note
-```
+- **`next_update_at`** — absolute UTC `datetime` of the next expected observation: `_latest_time + DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S`. Falls back to `now + DEFAULT_POLLING_INTERVAL_S` when the observation time is unknown. Used to set the cache TTL and to recompute the remaining wait when serving from cache.
+- **`seconds_until_next_update`** — integer seconds until `next_update_at`, clamped to `[0, 600]`. Included in the API response for the frontend to schedule its next polling call.
 
-This is the value the frontend uses to schedule the next `/api/station/<id>/` call — it can't refresh faster than the station actually updates ([weather_station.py:145-156](../weather/services/weather_station.py#L145-L156)).
+The server caches each station's response and serves it directly for all requests **except** those carrying `?refresh=1`. The frontend countdown timer appends `?refresh=1` when it fires, so Digitraffic is only queried on the scheduled refresh cycle. Manual refreshes and page reloads are always served from cache while the entry is alive. When serving from cache, `seconds_until_next_update` is recomputed from `_next_update_at` so the frontend receives the accurate remaining wait time regardless of when it joined the cycle.
 
 ### 5.5 Error handling
 
@@ -339,7 +336,7 @@ Callers check `has_error`:
 flowchart TB
     subgraph Server-side
         S1[("Signed-cookie session<br/>wx_settings")]
-        S2[("django.core.cache (locmem)<br/>weather_station_list, TTL≈5min")]
+        S2[("django.core.cache (locmem)<br/>weather_station_list, TTL≈5min<br/>station_data:{id}, TTL=next_update_at+30s")]
     end
     subgraph Client-side
         C1[("localStorage<br/>MRU station list, max 5")]
@@ -353,6 +350,7 @@ flowchart TB
     S1 -.holds.-> K8["follow_location (boolean)"]
     S2 -.holds.-> K4["parsed WeatherStationList"]
     S2 -.holds.-> K9["IP rate-limit sliding windows"]
+    S2 -.holds.-> K10["per-station response + _next_update_at"]
     C1 -.holds.-> K5["recently selected stations"]
     C3 -.holds.-> K7["GeoJSON camera stations<br/>from Digitraffic weathercam API"]
 ```
@@ -377,9 +375,12 @@ flowchart LR
         RL -->|not limited| L1[_get_settings]
         RL -->|limited| out1
         in1 --> L2[_get_station_list]
-        L1 -->|lang| L3[build_full_weather_response]
-        L2 -->|WeatherStationList| L3
-        L3 --> out1
+        L1 -->|lang| CHK{cache hit &\nnow < next_update_at?}
+        L2 -->|WeatherStationList| CHK
+        CHK -->|yes| out1
+        CHK -->|no| L3[build_full_weather_response]
+        L3 --> CSET[cache.set station_data]
+        CSET --> out1
     end
 
     subgraph svc["«block» WeatherService"]
@@ -544,7 +545,7 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 
 ## 11. Testing Surfaces
 
-- **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, JSON parsing, forecast date filtering, and all view endpoints. Run: `python manage.py test weather`.
+- **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, JSON parsing, forecast date filtering, per-station caching logic (`next_update_at`, cache hit/miss, `_next_update_at` not leaked), and all view endpoints. Run: `python manage.py test weather`.
 - **Live smoke test** — [scripts/smoke_test.py](../scripts/smoke_test.py). Hits real Digitraffic (and OWM if a key is supplied).
 
 ---
@@ -554,6 +555,6 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 - **Sessions**: Django signed-cookie backend. No server-side session store needed; rotating `SECRET_KEY` invalidates all stored settings.
 - **API key**: `OPENWEATHER_API_KEY` is read from the environment at startup via `settings.OPENWEATHER_API_KEY`. Set it in the server's environment or `EnvironmentFile`. It is never logged or stored in sessions. If unset, OWM calls are skipped and `current_symbol`/`forecast` are returned empty.
 - **Rate limiting**: `_is_rate_limited(ip)` in `views.py` implements a sliding-window counter stored in `LocMemCache`. The limit is configurable via the `WEATHER_RATE_LIMIT` env var (default `15/m`). Exceeding the limit returns HTTP 429. Because the counter lives in `LocMemCache`, it resets on process restart and is not shared across workers.
-- **Cache backend**: Default is in-process `LocMemCache`. Swap to Redis/Memcached if running multiple workers and you want a shared station list and rate-limit store.
+- **Cache backend**: Default is in-process `LocMemCache`. Two cache namespaces are used: `weather_station_list` (station catalogue, TTL ≈ 5 min) and `station_data:{id}` (per-station observation response, TTL = `next_update_at - now + 30 s`). Swap to Redis/Memcached if running multiple workers and you want a shared station list, rate-limit store, and observation cache.
 - **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py](../weather/services/weather_service.py)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as HTTP 502 with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner and schedules an automatic retry after 60 seconds.
 - **i18n**: Language is a string flag (`fi`/`sv`/`en`) passed through to `WeatherStation.to_dict`, which calls `wind_direction_as_text` and `present_weather_localized` for server-side translation. Present weather labels and Digitraffic SADE sensor condition strings are translated via a lookup table in `WeatherStation`. No Django `gettext` machinery is involved.

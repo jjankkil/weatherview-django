@@ -23,6 +23,7 @@ that actually hits Digitraffic + OpenWeatherMap is in
 """
 
 import datetime
+from datetime import timezone as dt_timezone
 from unittest.mock import patch, MagicMock
 
 import requests as requests_lib
@@ -569,6 +570,125 @@ class ViewTests(SimpleTestCase):
         data = r.json()
         self.assertIn("error", data)
         self.assertIn("500", data["error"])
+
+
+class NextUpdateAtTests(SimpleTestCase):
+    """@brief Unit tests for WeatherStation.next_update_at and seconds_until_next_update."""
+
+    def _make_payload(self, ts: str) -> dict:
+        return {**_STATION_DATA_PAYLOAD, "dataUpdatedTime": ts}
+
+    def test_known_observation_time_returns_latest_plus_interval_plus_delay(self):
+        """@brief next_update_at equals _latest_time + DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S."""
+        from weather.services.definitions import Constants
+        obs = datetime.datetime(2026, 5, 12, 12, 50, 0, tzinfo=dt_timezone.utc)
+        ws = WeatherStation()
+        ws.parse(self._make_payload("2026-05-12T12:50:00Z"))
+        expected = obs + datetime.timedelta(
+            seconds=Constants.DEFAULT_POLLING_INTERVAL_S + Constants.STATION_UPDATE_DELAY_S
+        )
+        self.assertEqual(ws.next_update_at, expected)
+
+    def test_unknown_observation_time_returns_now_plus_default_interval(self):
+        """@brief next_update_at falls back to now + DEFAULT_POLLING_INTERVAL_S when observation time is unknown."""
+        from django.utils import timezone as dj_tz
+        from weather.services.definitions import Constants
+        ws = WeatherStation()  # _latest_time stays at epoch (year=1970)
+        before = dj_tz.now()
+        result = ws.next_update_at
+        after = dj_tz.now()
+        self.assertGreaterEqual(result, before + datetime.timedelta(seconds=Constants.DEFAULT_POLLING_INTERVAL_S))
+        self.assertLessEqual(result, after + datetime.timedelta(seconds=Constants.DEFAULT_POLLING_INTERVAL_S + 1))
+
+    def test_seconds_until_next_update_recent_observation(self):
+        """@brief seconds_until_next_update returns DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S for a just-updated station."""
+        from django.utils import timezone as dj_tz
+        from weather.services.definitions import Constants
+        now = dj_tz.now()
+        ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        ws = WeatherStation()
+        ws.parse(self._make_payload(ts))
+        expected = Constants.DEFAULT_POLLING_INTERVAL_S + Constants.STATION_UPDATE_DELAY_S
+        result = ws.seconds_until_next_update
+        self.assertGreaterEqual(result, expected - 2)
+        self.assertLessEqual(result, expected + 2)
+
+    def test_seconds_until_next_update_clamps_to_zero_when_overdue(self):
+        """@brief seconds_until_next_update returns 0 when next_update_at is in the past."""
+        ws = WeatherStation()
+        ws._latest_time = datetime.datetime(2020, 1, 1, 0, 0, 0, tzinfo=dt_timezone.utc)
+        self.assertEqual(ws.seconds_until_next_update, 0)
+
+    def test_seconds_until_next_update_clamps_to_600_max(self):
+        """@brief seconds_until_next_update is clamped to 600 even when DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S would exceed it."""
+        from weather.services.definitions import Constants
+        # Temporarily make the sum exceed 600 by using a future obs time far ahead
+        from django.utils import timezone as dj_tz
+        future = dj_tz.now() + datetime.timedelta(seconds=700)
+        ws = WeatherStation()
+        ws._latest_time = future
+        self.assertLessEqual(ws.seconds_until_next_update, 600)
+
+
+class StationDataCacheTests(SimpleTestCase):
+    """@brief Tests for per-station response caching in api_station_data."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = Client(enforce_csrf_checks=False)
+        self._get = lambda path, **kw: self.client.get(path, secure=True, **kw)
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_cached_response_served_without_second_digitraffic_request(self, mock_get):
+        """@brief Second request within next_update_at window is served from cache; Digitraffic not called again."""
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+        ]
+        self._get("/api/station/12345/")
+        # Cache is now populated. A second request should not call mock_get again.
+        self._get("/api/station/12345/")
+        # mock_get was called exactly twice (station list + station data), not four times.
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_cache_bypassed_with_refresh_param(self, mock_get):
+        """@brief ?refresh=1 bypasses the cache and fetches fresh data from Digitraffic."""
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+        ]
+        self._get("/api/station/12345/")          # populate cache (2 calls)
+        mock_get.side_effect = [
+            _mock_response(_STATION_DATA_PAYLOAD),
+        ]
+        r = self._get("/api/station/12345/?refresh=1")  # station list cached, only station data re-fetched
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(mock_get.call_count, 3)
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_next_update_at_not_in_json_response(self, mock_get):
+        """@brief The internal _next_update_at field is never exposed in the API response."""
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+        ]
+        r = self._get("/api/station/12345/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("_next_update_at", r.json())
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_cached_response_also_omits_next_update_at(self, mock_get):
+        """@brief _next_update_at is absent from the response even when served from cache."""
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+        ]
+        self._get("/api/station/12345/")           # populate cache
+        mock_get.side_effect = []                  # no further calls allowed
+        r = self._get("/api/station/12345/")       # served from cache
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("_next_update_at", r.json())
 
 
 class WeatherServiceErrorTests(SimpleTestCase):

@@ -24,8 +24,9 @@ Pick any of 400+ Finnish road weather stations and see current observations, FMI
 - 🔒 Application-level OpenWeatherMap API key — no per-user key required
 - 🚦 Built-in IP-based rate limiting on the weather API endpoint (configurable)
 - 🚀 In-memory station-list cache (5 min) — no repeated 447-row downloads
+- ⚡ Per-station observation cache — Digitraffic is only queried by the scheduled auto-refresh; manual refreshes and page reloads are served from cache
 
-No database required. Settings live in signed-cookie sessions; weather data is fetched live on each request.
+No database required. Settings live in signed-cookie sessions; observation data is cached per station and refreshed only when new data is expected.
 
 ---
 
@@ -364,7 +365,7 @@ This generates HTML documentation in `docs/doxygen/html/`. Open `docs/doxygen/ht
 
 Two test surfaces ship with the project:
 
-**Offline Django tests** — 29 tests covering helpers, FMI physics, JSON parsing, forecast date filtering, upstream error handling (5xx / 4xx / network failures), and all HTTP endpoints (mocked):
+**Offline Django tests** — 44 tests covering helpers, FMI physics, JSON parsing, forecast date filtering, upstream error handling (5xx / 4xx / network failures), per-station caching logic, and all HTTP endpoints (mocked):
 
 ```bash
 python manage.py test weather

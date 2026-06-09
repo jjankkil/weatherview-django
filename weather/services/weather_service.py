@@ -195,6 +195,8 @@ class WeatherService:
                 - current_symbol: Weather condition symbol (empty if no OpenWeatherMap data)
                 - forecast: Array of forecast objects, each with time (HH:MM), date (YYYY-MM-DD),
                   temperature (rounded °C string), and symbol
+                - _next_update_at: datetime of the next expected Digitraffic observation
+                  (internal; stripped by the view before sending the JSON response)
                 - Additional keys from station_data.to_dict(lang)
                 Returns {"error": <clean message>} if station not found or Digitraffic request
                 fails. The error message is human-readable (e.g. "Upstream service error
@@ -221,6 +223,7 @@ class WeatherService:
         result["station_name"] = station_info.formatted_name
         result["current_symbol"] = ""
         result["forecast"] = []
+        result["_next_update_at"] = station_data.next_update_at
 
         if settings.OPENWEATHER_API_KEY:
             city = get_station_city(station_info.formatted_name)

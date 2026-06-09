@@ -10,7 +10,7 @@ visibility formatting, update timing).
 """
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .definitions import Constants, ConversionType
 from .physics import fmi_feels_like_temperature
@@ -92,11 +92,11 @@ class WeatherStation:
     """FMI weather station with collection of sensor measurements.
 
     Represents a single weather station's observations including multiple sensor
-    readings (temperature, humidity, wind, etc.). Tracks observation timestamps to
-    calculate update intervals and manages sensor data retrieval.
+    readings (temperature, humidity, wind, etc.). Tracks the latest observation
+    timestamp to calculate the next expected update time.
 
     @details
-    - Maintains both current and previous observation timestamps for update timing
+    - Maintains the latest observation timestamp for update timing
     - Provides convenience properties for common weather measurements
     - Calculates derived values (feels-like temperature, formatted visibility)
     - Converts raw API values to appropriate units and formats
@@ -105,30 +105,24 @@ class WeatherStation:
         """Initialize an empty WeatherStation object."""
         self.sensors: list[Sensor] = []  #!< List of sensor measurements
         self._latest_time: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)  #!< Most recent observation timestamp
-        self._previous_time: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)  #!< Previous observation timestamp (for interval calculation)
 
     def parse(self, data: dict) -> bool:
         """Parse FMI weather station observation data.
 
-        Extracts all sensor measurements from FMI API response and updates observation
-        timestamps. Tracks both latest and previous update times for update interval calculation.
+        Extracts all sensor measurements from FMI API response and updates the
+        latest observation timestamp.
 
         @param data Dictionary from FMI station weather data API response.
         @return True after parsing completes (always succeeds in structure).
         @details
         - Expects key: sensorValues (array of sensor dictionaries)
         - Optional key: dataUpdatedTime (ISO 8601 timestamp)
-        - Updates _latest_time and _previous_time to track observation timing
+        - Updates _latest_time with the observation timestamp
         - Sensors that fail to parse are silently skipped
         - Clears existing sensors before parsing new data
         """
         obs_time = _parse_timestamp(data.get("dataUpdatedTime", ""))
-        if self._latest_time == self._previous_time:
-            self._previous_time = obs_time
-            self._latest_time = obs_time
-        elif obs_time != self._previous_time:
-            self._previous_time = self._latest_time
-            self._latest_time = obs_time
+        self._latest_time = obs_time
 
         self.sensors.clear()
         for s_data in data.get("sensorValues", []):
@@ -354,31 +348,48 @@ class WeatherStation:
         return self.present_weather_localized("fi")
 
     @property
-    def seconds_until_next_update(self) -> int:
-        """Calculate seconds until the next expected data update.
+    def next_update_at(self) -> datetime:
+        """Return the absolute UTC datetime when new station data is expected.
 
-        Estimates the time until the next observation based on the observed update interval
-        between the latest two observations. Used for scheduling client-side polling.
+        Returns the absolute UTC datetime when new station data is expected:
+        `_latest_time + DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S`.
+        Falls back to `now + DEFAULT_POLLING_INTERVAL_S` when the observation
+        time is unknown (year <= 1970).
 
-        @return Seconds to wait before polling for the next update. Clamped to [0, 600].
+        @return UTC datetime of the expected next update.
         @details
-        - If no prior observation: returns DEFAULT_POLLING_INTERVAL_S (60s)
-        - Otherwise: calculates interval between latest and previous observations
-        - Factors in elapsed time since latest observation
-        - Adds STATION_UPDATE_DELAY_S buffer before the expected next update time
-        - Clamped to minimum 0 (update available now) and maximum 600s (10 min)
-        - Attempts to use Django timezone for current time if available; falls back to UTC
+        - DEFAULT_POLLING_INTERVAL_S is the assumed station update cadence (5 min)
+        - STATION_UPDATE_DELAY_S accounts for the time Digitraffic takes to publish
+          new data after the station records an observation
         """
-        if self._latest_time == self._previous_time:
-            return Constants.DEFAULT_POLLING_INTERVAL_S
-        interval = abs((self._latest_time - self._previous_time).total_seconds())
         try:
             from django.utils import timezone as dj_tz
             now = dj_tz.now()
         except Exception:
             now = datetime.now(tz=timezone.utc)
-        elapsed = (now - self._latest_time).total_seconds()
-        wait = interval - elapsed + Constants.STATION_UPDATE_DELAY_S
+        if self._latest_time.year <= 1970:
+            return now + timedelta(seconds=Constants.DEFAULT_POLLING_INTERVAL_S)
+        return self._latest_time + timedelta(seconds=Constants.DEFAULT_POLLING_INTERVAL_S + Constants.STATION_UPDATE_DELAY_S)
+
+    @property
+    def seconds_until_next_update(self) -> int:
+        """Calculate seconds until the next expected data update.
+
+        Returns the number of whole seconds between now and @ref next_update_at.
+        Used by the frontend to schedule the next polling call.
+
+        @return Seconds to wait before polling for the next update. Clamped to [0, 600].
+        @details
+        - Delegates entirely to next_update_at for the deadline calculation
+        - Clamped to minimum 0 (update already due) and maximum 600s (10 min)
+        - Attempts to use Django timezone for current time if available; falls back to UTC
+        """
+        try:
+            from django.utils import timezone as dj_tz
+            now = dj_tz.now()
+        except Exception:
+            now = datetime.now(tz=timezone.utc)
+        wait = (self.next_update_at - now).total_seconds()
         return max(0, min(int(wait), 600))
 
     def to_dict(self, lang: str = "fi") -> dict:
