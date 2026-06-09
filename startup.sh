@@ -30,5 +30,12 @@ export WVD_ALLOWED_HOSTS="localhost,127.0.0.1,0.0.0.0"
 # Set session cookie age (optional, defaults to 14 days)
 export WVD_SESSION_COOKIE_AGE=1209600
 
+# Load secrets from .env if present
+if [ -f ".env" ]; then
+    set -a
+    source .env
+    set +a
+fi
+
 # Run the development server
 python manage.py runserver 0.0.0.0:8000

@@ -29,6 +29,13 @@ set WVD_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
 REM Set session cookie age (optional, defaults to 14 days)
 set WVD_SESSION_COOKIE_AGE=1209600
 
+REM Load secrets from .env if present
+if exist ".env" (
+    for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
+        if not "%%a"=="" if not "%%a:~0,1%"=="#" set %%a=%%b
+    )
+)
+
 REM Run the development server
 python manage.py runserver 0.0.0.0:8000
 

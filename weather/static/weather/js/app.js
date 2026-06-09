@@ -31,8 +31,6 @@ const LABELS = {
     loadingStations: '— Ladataan asemia… —',
     nextUpdate: 'Seuraava päivitys: {s} s',
     settingsTitle: 'Asetukset',
-    apiKeyLabel: 'OpenWeatherMap API-avain:',
-    apiKeyHint: 'API-avain tarvitaan säätilan symbolien ja ennusteen näyttämiseen. Rekisteröidy ilmaiseksi osoitteessa openweathermap.org.',
     cameraLabel: 'Näytä kelikameroiden kuvat:',
     followLocationLabel: 'Käytä sijaintiasi aseman valintaan:',
     cameraLoaded: 'Ladattu',
@@ -70,8 +68,6 @@ const LABELS = {
     loadingStations: '— Loading stations… —',
     nextUpdate: 'Next update: {s} s',
     settingsTitle: 'Settings',
-    apiKeyLabel: 'OpenWeatherMap API key:',
-    apiKeyHint: 'API key required for weather symbols and forecast. Register for free at openweathermap.org.',
     cameraLabel: 'Show weather camera images:',
     followLocationLabel: 'Use my location to select station:',
     cameraLoaded: 'Loaded',
@@ -104,8 +100,6 @@ const LABELS = {
     loadingStations: '— Laddar stationer… —',
     nextUpdate: 'Nästa uppdatering: {s} s',
     settingsTitle: 'Inställningar',
-    apiKeyLabel: 'OpenWeatherMap API-nyckel:',
-    apiKeyHint: 'API-nyckel krävs för vädersymboler och prognos. Registrera dig gratis på openweathermap.org.',
     cameraLabel: 'Visa vägkamerabilder:',
     followLocationLabel: 'Använd min plats för stationsval:',
     cameraLoaded: 'Laddad',
@@ -150,7 +144,6 @@ const state = {
   lang: 'fi',
   stations: [],
   currentStationId: null,
-  apiKey: '',
   showCamera: true,
   followLocation: false,
   refreshTimer: null,
@@ -227,8 +220,6 @@ const dom = {
   stationSearchClose:   $('station-search-close'),
   settingsModal:  $('settings-modal'),
   settingsTitle:  $('settings-modal-title'),
-  apiKeyInput:    $('api-key-input'),
-  apiKeyLabel:    $('api-key-label'),
   cameraToggle:        $('camera-toggle'),
   cameraLabel:         $('camera-label'),
   followLocationToggle: $('follow-location-toggle'),
@@ -345,11 +336,8 @@ function applyLabels() {
   setText(dom.refreshLabel, L.refresh);
   dom.stationSearchBtn.title = L.stationSearch;
   syncLangDropdown();
-  setText(dom.apiKeyLabel, L.apiKeyLabel);
   setText(dom.cameraLabel, L.cameraLabel);
   setText(dom.followLocationLabel, L.followLocationLabel);
-  const hint = document.querySelector('.settings-hint');
-  if (hint) hint.textContent = L.apiKeyHint;
   setText(dom.settingsSave, L.save);
   setText(dom.settingsCancel, L.cancel);
   setText(dom.settingsTitle, L.settingsTitle);
@@ -378,7 +366,6 @@ async function fetchSettings() {
     if (!r.ok) return;
     const data = await r.json();
     if (data.language) state.lang = data.language;
-    if (data.openweathermap_api_key) state.apiKey = data.openweathermap_api_key;
     if (data.current_station_id) state.currentStationId = data.current_station_id;
     if (data.show_camera !== undefined) state.showCamera = data.show_camera;
     if (data.follow_location !== undefined) state.followLocation = data.follow_location;
@@ -832,11 +819,9 @@ function initEvents() {
  * before displaying it to the user.
  */
 function openSettings() {
-  dom.apiKeyInput.value = state.apiKey;
   dom.cameraToggle.checked = state.showCamera;
   dom.followLocationToggle.checked = state.followLocation;
   setVisible(dom.settingsModal, true);
-  dom.apiKeyInput.focus();
 }
 
 /**
@@ -860,13 +845,11 @@ function closeSettings() {
  * - Triggers fetchWeather to refresh data (skips camera fetch if disabled)
  */
 async function onSettingsSave() {
-  const key = dom.apiKeyInput.value.trim();
   const showCamera = dom.cameraToggle.checked;
   const followLocation = dom.followLocationToggle.checked;
-  state.apiKey = key;
   state.showCamera = showCamera;
   state.followLocation = followLocation;
-  await saveSettings({ openweathermap_api_key: key, show_camera: showCamera, follow_location: followLocation });
+  await saveSettings({ show_camera: showCamera, follow_location: followLocation });
   closeSettings();
   setVisible(dom.cameraPanel, showCamera);
   if (followLocation) {

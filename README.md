@@ -14,13 +14,15 @@ Pick any of 400+ Finnish road weather stations and see current observations, FMI
 - 🌡️ Air temperature with FMI feels-like calculation
 - 💨 Wind speed (avg / max), direction with cardinal text
 - 💧 Humidity, dew point, road surface temperature, visibility, temperature rate of change, present weather
-- 🌦️ Optional short-range forecast (all 3-hour OWM periods up to 3 days ahead, with paginated carousel) + current weather symbol (requires an OpenWeatherMap API key)
-- FI/EN Finnish/English UI toggle
+- 🌦️ Short-range forecast (all 3-hour OWM periods up to 3 days ahead, with paginated carousel) + current weather symbol
+- FI/SV/EN Finnish/Swedish/English UI toggle
 - 🔄 Smart auto-refresh based on each station's observation cadence
 - ⭐ 5-item MRU station list, persisted in browser `localStorage`
 - ⏳ Wait cursor + dimmed card while loading
 - 📍 Automatic nearest-station selection using the browser Geolocation API (on first visit or when "Use my location" is enabled in Settings)
-- 💾 Session-based settings (API key, current station, language, camera visibility, follow-location)
+- 💾 Session-based settings (current station, language, camera visibility, follow-location)
+- 🔒 Application-level OpenWeatherMap API key — no per-user key required
+- 🚦 Built-in IP-based rate limiting on the weather API endpoint (configurable)
 - 🚀 In-memory station-list cache (5 min) — no repeated 447-row downloads
 
 No database required. Settings live in signed-cookie sessions; weather data is fetched live on each request.
@@ -45,21 +47,45 @@ python -m venv .venv
 # source .venv/bin/activate     # Linux / macOS
 
 pip install -r requirements.txt
-python manage.py runserver
+```
+
+Copy `.env.example` to `.env` and fill in the required values:
+
+```bash
+cp .env.example .env
+```
+
+```env
+WVD_SECRET_KEY=<generate with: python -c "from django.utils.crypto import get_random_string; print(get_random_string(50))">
+OPENWEATHER_API_KEY=<your OpenWeatherMap API key>
+```
+
+Then start the development server:
+
+```bash
+# Windows PowerShell
+.\startup.ps1
+
+# Windows CMD
+startup.bat
+
+# Linux / macOS / WSL
+./startup.sh
+```
+
+Or manually:
+
+```bash
+WVD_SECRET_KEY=... OPENWEATHER_API_KEY=... python manage.py runserver
 ```
 
 Then open <http://127.0.0.1:8000/> in your browser.
 
-### Optional: OpenWeatherMap API key
+### OpenWeatherMap API key
 
-The weather symbol and forecast are only shown when an OpenWeatherMap API key is configured.
+Weather symbols and forecast data require an OpenWeatherMap API key. The key is configured once by the application operator (in `.env` or the server environment) — users do not need their own key.
 
-1. Register a free account at <https://openweathermap.org/>.
-2. Copy your API key.
-3. Open the app, click **⚙️** in the top-right, paste the key, click
-   **Tallenna / Save**.
-
-The key is stored in the browser session (signed cookie). It is never persisted server-side.
+Register a free account at <https://openweathermap.org/> to obtain a key.
 
 ---
 
@@ -89,16 +115,38 @@ pip install -r requirements.txt
 
 ### 3. Configure environment
 
-Create `/opt/weatherview/.env` with at minimum:
+The app **will not start** without `WVD_SECRET_KEY` and `OPENWEATHER_API_KEY` set. Create `/opt/weatherview/.env` from the provided template:
+
+```bash
+cp /opt/weatherview/.env.example /opt/weatherview/.env
+```
+
+Then edit `/opt/weatherview/.env` and fill in the required values:
 
 ```env
+# Required — the service will crash on startup if either of these is missing or left as the placeholder
 WVD_SECRET_KEY=<generate with: python3 -c "from django.utils.crypto import get_random_string; print(get_random_string(50))">
+OPENWEATHER_API_KEY=<your OpenWeatherMap API key>
+
+# Recommended — restrict which hostnames Django accepts
 WVD_ALLOWED_HOSTS=<hostname-or-ip>,localhost
+
+# Optional — shown with defaults
+WEATHER_RATE_LIMIT=15/m
+WVD_SESSION_COOKIE_AGE=1209600
+WVD_SECURE_HSTS_SECONDS=31536000
+```
+
+Restrict permissions so the key is not world-readable:
+
+```bash
+chmod 640 /opt/weatherview/.env
 ```
 
 Collect static files (run with venv active):
 
 ```bash
+source .venv/bin/activate
 python manage.py collectstatic --noinput
 ```
 
@@ -115,7 +163,10 @@ After=network.target
 User=pi
 EnvironmentFile=/opt/weatherview/.env
 WorkingDirectory=/opt/weatherview
-ExecStart=/opt/weatherview/.venv/bin/gunicorn weatherview_project.wsgi:application --bind 127.0.0.1:8000 --workers 2
+ExecStart=/opt/weatherview/.venv/bin/gunicorn weatherview_project.wsgi:application --bind 127.0.0.1:8000 --workers 1
+; Single worker required: the station list cache and IP rate limiter use LocMemCache,
+; which is not shared across processes. Scale with multiple instances behind a load
+; balancer, or swap to Redis if you need multiple workers.
 Restart=always
 RestartSec=5
 
@@ -128,7 +179,18 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now weatherview
 ```
 
+Check that the service started without errors:
+
+```bash
+sudo systemctl status weatherview
+sudo journalctl -u weatherview -n 50
+```
+
+If you see `KeyError: 'WVD_SECRET_KEY'` in the journal, the `.env` file is missing, has wrong permissions, or the `EnvironmentFile=` path is incorrect.
+
 ### 5. Nginx
+
+Nginx handles the HTTP→HTTPS redirect and terminates TLS. Django is configured to trust Nginx's `X-Forwarded-Proto` header, so no changes to `settings.py` are needed.
 
 Create `/etc/nginx/sites-available/weatherview`:
 
@@ -154,6 +216,7 @@ server {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
     }
 }
@@ -180,13 +243,6 @@ sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
 
 On first visit the browser will warn about the self-signed certificate — click **Advanced → Proceed** to accept it.
 
-Add to `settings.py` to let Django know it's behind an HTTPS proxy:
-
-```python
-SECURE_SSL_REDIRECT = False          # Nginx handles the HTTP→HTTPS redirect
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-```
-
 ### Updating
 
 After a `git pull`:
@@ -196,7 +252,7 @@ After a `git pull`:
 sudo systemctl restart weatherview
 
 # If static files (CSS/JS) also changed:
-source .venv/bin/activate
+source /opt/weatherview/.venv/bin/activate
 python manage.py collectstatic --noinput
 sudo systemctl restart weatherview
 ```
@@ -205,15 +261,15 @@ sudo systemctl restart weatherview
 
 ## Usage
 
-| Element                  | What it does                                                                                                    |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| Station dropdown         | Pick any station. Most-recently-used 5 are grouped at the top.                                                  |
-| 🔍 Search button         | Open a search modal — type any part of a station name to filter and select it.                                  |
-| 🌐 Top-right button      | Toggle between Finnish and English. Labels, wind direction, and weather condition values all switch language.   |
-| ⚙️ Top-right button      | Open settings (OpenWeatherMap API key, camera toggle, use-my-location toggle).                                  |
-| **Päivitä nyt** button   | Force an immediate refresh.                                                                                     |
-| _Seuraava päivitys: N s_ | Countdown to the next automatic refresh.                                                                        |
-| Camera image             | Click to open a lightbox. Navigate with ←/→ buttons, arrow keys, or swipe. Toggle fullscreen with the ⛶ button. |
+| Element | What it does |
+| --- | --- |
+| Station dropdown | Pick any station. Most-recently-used 5 are grouped at the top. |
+| 🔍 Search button | Open a search modal — type any part of a station name to filter and select it. |
+| 🌐 Top-right button | Toggle between Finnish, Swedish, and English. Labels, wind direction, and weather condition values all switch language. |
+| ⚙️ Top-right button | Open settings (camera toggle, use-my-location toggle). |
+| **Päivitä nyt** button | Force an immediate refresh. |
+| _Seuraava päivitys: N s_ | Countdown to the next automatic refresh. |
+| Camera image | Click to open a lightbox. Navigate with prev/next buttons, arrow keys, or swipe. Toggle fullscreen with the fullscreen button. |
 
 ---
 

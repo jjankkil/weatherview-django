@@ -8,8 +8,8 @@ This document describes the structure and runtime behavior of `weatherview-djang
 
 `weatherview-django` is a Django-served single-page application that visualizes live road weather observations from **Fintraffic / Digitraffic** and an optional short-range forecast from **OpenWeatherMap (OWM)**. The server is stateless apart from:
 
-- a **signed-cookie session** holding per-user UI preferences and the OWM API key, and
-- an **in-process cache** holding the parsed station list (TTL ≈ 5 minutes).
+- a **signed-cookie session** holding per-user UI preferences, and
+- an **in-process cache** holding the parsed station list (TTL ≈ 5 minutes) and IP rate-limit counters.
 
 No database is used. All observation data is fetched on demand and parsed in memory.
 
@@ -95,9 +95,9 @@ classDiagram
         +error_message: str
         +get_station_list() WeatherStationList
         +get_station_data(station_id) WeatherStation
-        +get_city_weather(city, coords, api_key) dict
-        +get_forecast(coords, api_key) dict
-        +build_full_weather_response(id, list, key, lang) dict
+        +get_city_weather(city, coords) dict
+        +get_forecast(coords) dict
+        +build_full_weather_response(id, list, lang) dict
         -_get(url, key) dict|list
     }
 
@@ -177,7 +177,7 @@ classDiagram
 | POST   | `/api/settings/save/`    | `api_settings_save`     | Writes whitelisted session settings (CSRF-exempt) |
 | GET    | `/api/nearest-station/`  | `api_nearest_station`   | Returns the station closest to `?lat=…&lon=…`     |
 
-Session settings whitelist: `current_station_id`, `current_station_name`, `openweathermap_api_key`, `language`, `show_camera`, `follow_location`. Anything else in the POST body is silently dropped ([views.py](../weather/views.py)).
+Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `follow_location`. Anything else in the POST body is silently dropped ([views.py](../weather/views.py)).
 
 ---
 
@@ -198,7 +198,7 @@ sequenceDiagram
     Browser->>Django: GET /
     Django-->>Browser: index.html + static
     Browser->>Django: GET /api/settings/
-    Django-->>Browser: {language, api_key, current_station_id, ...}
+    Django-->>Browser: {language, current_station_id, show_camera, follow_location, ...}
     Browser->>Django: GET /api/stations/
     Django->>Cache: get('weather_station_list')
     alt cache miss
@@ -229,13 +229,14 @@ sequenceDiagram
     participant OWM as OpenWeatherMap
 
     Browser->>View: GET /api/station/23819/
+    View->>View: _is_rate_limited(ip) → 429 if exceeded
     View->>View: _get_settings(request)
     View->>View: _get_station_list() (cache)
-    View->>WS: build_full_weather_response(id, list, api_key, lang)
+    View->>WS: build_full_weather_response(id, list, lang)
     WS->>DT: GET /stations/{id}/data
     DT-->>WS: {dataUpdatedTime, sensorValues:[...]}
     WS->>WS: WeatherStation.parse → derive temp/wind/feels-like/road-temp/visibility/dew-point/humidity
-    alt api_key present
+    alt OPENWEATHER_API_KEY set in settings
         WS->>OWM: GET /weather?q=city
         alt city lookup fails
             WS->>OWM: GET /weather?lat&lon (fallback)
@@ -346,18 +347,18 @@ flowchart TB
         C3[("In-memory JS cache<br/>weathercam stations")]
     end
 
-    S1 -.holds.-> K1["openweathermap_api_key"]
-    S1 -.holds.-> K2["language (fi|en)"]
+    S1 -.holds.-> K2["language (fi|sv|en)"]
     S1 -.holds.-> K3["current_station_id / _name"]
     S1 -.holds.-> K6["show_camera (boolean)"]
     S1 -.holds.-> K8["follow_location (boolean)"]
     S2 -.holds.-> K4["parsed WeatherStationList"]
+    S2 -.holds.-> K9["IP rate-limit sliding windows"]
     C1 -.holds.-> K5["recently selected stations"]
     C3 -.holds.-> K7["GeoJSON camera stations<br/>from Digitraffic weathercam API"]
 ```
 
-- The OWM API key never touches a database or log file; it lives only in the signed-cookie session.
-- The station list is cached per-process. With multiple worker processes, each warms its own copy on first hit.
+- The OWM API key is a server-side environment variable (`OPENWEATHER_API_KEY`). It never reaches the browser or session cookie.
+- The station list and IP rate-limit counters are cached per-process (`LocMemCache`). A single Gunicorn worker is therefore required unless you swap to a shared cache backend (Redis/Memcached).
 - Weathercam station data is cached in-memory on the client; it persists for the page lifetime and is refreshed on browser reload.
 
 ---
@@ -372,9 +373,11 @@ flowchart LR
         direction LR
         in1[/"in: HttpRequest"/]
         out1[/"out: JsonResponse"/]
-        in1 -->|station_id| L1[_get_settings]
+        in1 --> RL[_is_rate_limited]
+        RL -->|not limited| L1[_get_settings]
+        RL -->|limited| out1
         in1 --> L2[_get_station_list]
-        L1 -->|api_key, lang| L3[build_full_weather_response]
+        L1 -->|lang| L3[build_full_weather_response]
         L2 -->|WeatherStationList| L3
         L3 --> out1
     end
@@ -455,7 +458,7 @@ The frontend displays weather camera images for each station. Camera logic lives
 ### 9.1 Module structure
 
 | Export | Description |
-|---|---|
+| --- | --- |
 | `initCamera(state, dom, labels, setVisible)` | One-time setup; stores injected deps |
 | `showCameraForStation(lat, lon)` | Finds the nearest camera, fetches its presets, renders the carousel |
 | `carousel` | `{ index, slides }` — current carousel state |
@@ -549,6 +552,8 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 ## 12. Operational Notes
 
 - **Sessions**: Django signed-cookie backend. No server-side session store needed; rotating `SECRET_KEY` invalidates all stored settings.
-- **Cache backend**: Default is in-process `LocMemCache`. Swap to Redis/Memcached if running multiple workers and you want a single shared station list.
-- **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py:28](../weather/services/weather_service.py#L28)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as a HTTP 502 to the client with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner and schedules an automatic retry after 60 seconds.
-- **i18n**: Language is a string flag (`fi`/`en`) passed through to `WeatherStation.to_dict`, which calls `wind_direction_as_text` and `present_weather_localized` for server-side translation. Present weather labels ("Säätila:" / "Weather:", "Sade:" / "Precipitation:") and Digitraffic SADE sensor condition strings (e.g. "Pouta" → "Dry") are translated via a lookup table in `WeatherStation`. No Django `gettext` machinery is involved.
+- **API key**: `OPENWEATHER_API_KEY` is read from the environment at startup via `settings.OPENWEATHER_API_KEY`. Set it in the server's environment or `EnvironmentFile`. It is never logged or stored in sessions. If unset, OWM calls are skipped and `current_symbol`/`forecast` are returned empty.
+- **Rate limiting**: `_is_rate_limited(ip)` in `views.py` implements a sliding-window counter stored in `LocMemCache`. The limit is configurable via the `WEATHER_RATE_LIMIT` env var (default `15/m`). Exceeding the limit returns HTTP 429. Because the counter lives in `LocMemCache`, it resets on process restart and is not shared across workers.
+- **Cache backend**: Default is in-process `LocMemCache`. Swap to Redis/Memcached if running multiple workers and you want a shared station list and rate-limit store.
+- **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py](../weather/services/weather_service.py)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as HTTP 502 with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner and schedules an automatic retry after 60 seconds.
+- **i18n**: Language is a string flag (`fi`/`sv`/`en`) passed through to `WeatherStation.to_dict`, which calls `wind_direction_as_text` and `present_weather_localized` for server-side translation. Present weather labels and Digitraffic SADE sensor condition strings are translated via a lookup table in `WeatherStation`. No Django `gettext` machinery is involved.

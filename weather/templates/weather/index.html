@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tiesää – Road Weather</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'weather/favicon.svg' %}" />
     <link rel="stylesheet" href="{% static 'weather/css/style.css' %}" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.5.0/css/flag-icons.min.css" />
   </head>
@@ -274,20 +275,6 @@
           <button id="settings-close" class="btn-icon modal-close">✕</button>
         </div>
         <div class="modal-body">
-          <label id="api-key-label" for="api-key-input">OpenWeatherMap API-avain:</label>
-          <input
-            id="api-key-input"
-            type="text"
-            class="api-key-input"
-            placeholder="Syötä API-avain (valinnainen)"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <p class="settings-hint">
-            API-avain tarvitaan säätilan symbolien ja ennusteen näyttämiseen.
-            Rekisteröidy ilmaiseksi osoitteessa openweathermap.org.
-          </p>
-
           <div class="camera-setting">
             <label id="camera-label" for="camera-toggle">Näytä kelikameroiden kuvat:</label>
             <input id="camera-toggle" type="checkbox" checked />

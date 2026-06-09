@@ -10,6 +10,8 @@ Views handle caching of station lists, weather service requests, and session-bas
 
 import json
 import math
+import time
+from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
@@ -20,6 +22,25 @@ from .services.weather_service import WeatherService
 from .services.station_info import WeatherStationList
 
 _STATION_CACHE_KEY = 'weather_station_list'  #!< Cache key for the FMI station list
+
+def _parse_rate(rate: str) -> tuple[int, int]:
+    """Parse a rate string like '15/m' into (count, window_seconds)."""
+    count, unit = rate.split('/')
+    window = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unit, 60)
+    return int(count), window
+
+def _is_rate_limited(ip: str) -> bool:
+    """Return True if the given IP has exceeded WEATHER_RATE_LIMIT."""
+    count, window = _parse_rate(settings.WEATHER_RATE_LIMIT)
+    key = f'rl:{ip}'
+    now = time.time()
+    history = cache.get(key, [])
+    history = [t for t in history if now - t < window]
+    if len(history) >= count:
+        return True
+    history.append(now)
+    cache.set(key, history, window)
+    return False
 
 
 def _get_station_list() -> WeatherStationList:
@@ -50,7 +71,6 @@ _SETTINGS_KEY = "wx_settings"  #!< Session key for user weather settings
 _DEFAULT_SETTINGS = {  #!< Default settings applied to all sessions
     "current_station_id": None,  #!< Currently selected station (FMI station ID)
     "current_station_name": "",  #!< Display name of currently selected station
-    "openweathermap_api_key": "",  #!< OpenWeatherMap API key for additional weather data
     "language": "fi",  #!< Display language ("fi" for Finnish, "sv" for Swedish, "en" for English)
     "show_camera": True,  #!< Whether to display weather camera images (default: enabled)
     "follow_location": False,  #!< Whether to always use geolocation to select the nearest station
@@ -154,14 +174,17 @@ def api_station_data(request, station_id: int):
     - If no OpenWeatherMap API key: returns FMI data only (no weather symbols/forecast)
     - Forecast covers all OWM 3-hour periods up to (but not including) today + 3 days
     """
-    settings = _get_settings(request)
-    api_key = settings.get("openweathermap_api_key", "")
-    lang = settings.get("language", "fi")
+    ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')).split(',')[0].strip()
+    if _is_rate_limited(ip):
+        return JsonResponse({"error": "Too many requests"}, status=429)
+
+    user_settings = _get_settings(request)
+    lang = user_settings.get("language", "fi")
 
     station_list = _get_station_list()
 
     service = WeatherService()
-    data = service.build_full_weather_response(station_id, station_list, api_key, lang)
+    data = service.build_full_weather_response(station_id, station_list, lang)
     if "error" in data:
         return JsonResponse(data, status=502)
     return JsonResponse(data)
@@ -178,7 +201,6 @@ def api_settings_get(request):
     @return JsonResponse containing settings dict with keys:
             - current_station_id: FMI station ID (or None)
             - current_station_name: Display name of selected station
-            - openweathermap_api_key: API key for OpenWeatherMap (empty if not set)
             - language: Display language code ("fi" or "en")
             - show_camera: Whether to display camera images (boolean)
             - follow_location: Whether to always use geolocation to select the nearest station (boolean)
@@ -252,7 +274,7 @@ def api_settings_save(request):
     - Request body: JSON object with setting keys and values
     - CSRF exempt: decorated with @csrf_exempt for SPA/AJAX requests
     - Allowed keys (whitelist): current_station_id, current_station_name,
-      openweathermap_api_key, language, show_camera, follow_location
+      language, show_camera, follow_location
     - Partial updates: only provided keys are updated; others retain current values
     - Invalid JSON returns HTTP 400 Bad Request
     - All updates persisted to request.session for the current user
@@ -261,7 +283,6 @@ def api_settings_save(request):
     {
       "current_station_id": 101234,
       "current_station_name": "Helsinki, KPA",
-      "openweathermap_api_key": "your_api_key_here",
       "language": "en",
       "show_camera": true
     }
@@ -273,7 +294,7 @@ def api_settings_save(request):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
     settings = _get_settings(request)
-    allowed = {"current_station_id", "current_station_name", "openweathermap_api_key", "language", "show_camera", "follow_location"}
+    allowed = {"current_station_id", "current_station_name", "language", "show_camera", "follow_location"}
     for key in allowed:
         if key in body:
             settings[key] = body[key]

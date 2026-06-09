@@ -12,6 +12,8 @@
 #  | WVD_ALLOWED_HOSTS | `*,localhost,127.0.0.1` | Comma-separated allowed host list |
 #  | WVD_SESSION_COOKIE_AGE | `1209600` (14 days) | Session lifetime in seconds |
 #  | WVD_SECURE_HSTS_SECONDS | `31536000` (prod) / `0` (debug) | HSTS max-age |
+#  | OPENWEATHER_API_KEY | *(required)* | OpenWeatherMap API key for weather symbols and forecast |
+#  | WEATHER_RATE_LIMIT | `15/m` | Rate limit for weather API endpoint (per IP), e.g. "15/m" |
 #
 #  @author Jari Jankkila
 #  @date 2026
@@ -26,6 +28,9 @@ SECRET_KEY = os.environ["WVD_SECRET_KEY"]  ##< Django cryptographic secret key. 
 DEBUG = os.getenv("WVD_DEBUG", "False") == "True"  ##< Enable Django debug mode. Set WVD_DEBUG=True to activate.
 
 ALLOWED_HOSTS = os.getenv("WVD_ALLOWED_HOSTS", "*,localhost,127.0.0.1").split(",")  ##< Comma-separated list of allowed hostnames. Set via WVD_ALLOWED_HOSTS.
+
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")  ##< OpenWeatherMap API key. Set via OPENWEATHER_API_KEY env var.
+WEATHER_RATE_LIMIT = os.getenv("WEATHER_RATE_LIMIT", "15/m")  ##< Rate limit for weather API endpoint (per IP). Sliding-window format: "<count>/<unit>" where unit is s/m/h/d.
 
 INSTALLED_APPS = [  ##< Django applications enabled for this project.
     "django.contrib.sessions",
@@ -68,7 +73,8 @@ SESSION_COOKIE_HTTPONLY = True  ##< Prevent JavaScript access to the session coo
 CSRF_COOKIE_SECURE = not DEBUG  ##< Transmit CSRF cookie over HTTPS only (disabled in debug mode).
 CSRF_COOKIE_HTTPONLY = True  ##< Prevent JavaScript access to the CSRF cookie.
 
-SECURE_SSL_REDIRECT = not DEBUG  ##< Redirect all HTTP requests to HTTPS in production.
+SECURE_SSL_REDIRECT = False  ##< Nginx handles HTTP→HTTPS redirect; keep Django redirect off to avoid redirect loops.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")  ##< Trust X-Forwarded-Proto header from Nginx so Django treats requests as HTTPS.
 SECURE_HSTS_SECONDS = int(  ##< HSTS max-age in seconds. Set WVD_SECURE_HSTS_SECONDS to override; defaults to 1 year in production.
     os.getenv("WVD_SECURE_HSTS_SECONDS", "0" if DEBUG else "31536000")
 )
@@ -76,7 +82,7 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG  ##< Apply HSTS policy to all subdoma
 SECURE_HSTS_PRELOAD = not DEBUG  ##< Opt into HSTS preload list in production.
 SECURE_CONTENT_TYPE_NOSNIFF = True  ##< Prevent MIME-type sniffing by the browser.
 
-CACHES = {  ##< In-process memory cache shared within one worker; station list TTL is 5 minutes.
+CACHES = {  ##< In-process memory cache; station list TTL is 5 minutes.
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "TIMEOUT": 300,  # station list cached for 5 minutes

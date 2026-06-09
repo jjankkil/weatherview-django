@@ -7,7 +7,9 @@
 #  @date 2026
 
 from django.urls import path, include
+from django.views.generic.base import RedirectView
 
 urlpatterns = [  ##< Top-level URL patterns. All traffic is delegated to the weather app.
     path('', include('weather.urls')),
+    path('favicon.ico', RedirectView.as_view(url='/static/weather/favicon.svg', permanent=True)),
 ]

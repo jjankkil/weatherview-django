@@ -14,6 +14,7 @@ import datetime
 
 import requests
 from requests.exceptions import RequestException
+from django.conf import settings
 
 from .definitions import Urls
 from .station_info import WeatherStationList
@@ -82,6 +83,8 @@ class WeatherService:
         self._error = ""
         self._status = 200
         try:
+            display_url = url.split("appid=")[0].rstrip("&?") + "..." if "appid=" in url else url
+            print(f"[{datetime.datetime.now().strftime('%d/%b/%Y %H:%M:%S')}] GET {display_url}")
             r = requests.get(url, timeout=10)
             r.raise_for_status()
             data = r.json()
@@ -130,7 +133,7 @@ class WeatherService:
             station.parse(raw)
         return station
 
-    def get_city_weather(self, city: str, coordinates, api_key: str) -> dict:
+    def get_city_weather(self, city: str, coordinates) -> dict:
         """Fetch current weather data from OpenWeatherMap for a city or location.
 
         Attempts to fetch weather data by city name first. If that fails, falls back to
@@ -138,14 +141,14 @@ class WeatherService:
 
         @param city The city name to query (e.g., "Helsinki").
         @param coordinates Coordinate object with latitude and longitude attributes.
-        @param api_key The OpenWeatherMap API key for authentication.
         @return Dictionary containing OpenWeatherMap current weather response.
                 Returns empty dict if both requests fail or if @ref has_error is True.
         @details
         - Primary query uses city name for faster lookups
         - Fallback uses coordinates for ambiguous city names or failures
-        - API key is required; omitting it will result in authentication errors
+        - API key is read from Django settings (OPENWEATHER_API_KEY)
         """
+        api_key = settings.OPENWEATHER_API_KEY
         url = Urls.OPENWEATHERMAP_CITY_URL.format(city, api_key)
         data = self._get(url)
         if self.has_error:
@@ -155,17 +158,17 @@ class WeatherService:
             data = self._get(url)
         return data
 
-    def get_forecast(self, coordinates, api_key: str) -> dict:
+    def get_forecast(self, coordinates) -> dict:
         """Fetch weather forecast data from OpenWeatherMap for given coordinates.
 
         Retrieves a multi-day weather forecast (5-day / 3-hour forecast by default)
         from OpenWeatherMap for the specified location.
 
         @param coordinates Coordinate object with latitude and longitude attributes.
-        @param api_key The OpenWeatherMap API key for authentication.
         @return Dictionary containing OpenWeatherMap forecast response with a "list" key
                 containing forecast entries. Returns empty dict on error or if @ref has_error is True.
         """
+        api_key = settings.OPENWEATHER_API_KEY
         url = Urls.OPENWEATHERMAP_FORECAST_URL.format(
             coordinates.latitude, coordinates.longitude, api_key
         )
@@ -175,7 +178,6 @@ class WeatherService:
         self,
         station_id: int,
         station_list: WeatherStationList,
-        api_key: str,
         lang: str = "fi",
     ) -> dict:
         """Build a comprehensive weather response combining FMI and OpenWeatherMap data.
@@ -186,7 +188,6 @@ class WeatherService:
 
         @param station_id The FMI station identifier to query.
         @param station_list WeatherStationList containing station metadata (names, coordinates).
-        @param api_key OpenWeatherMap API key. If empty, only FMI data is returned.
         @param lang Language code for localized output (default: "fi" for Finnish).
         @return Dictionary containing aggregated weather data with the following keys:
                 - station_id: The requested station ID
@@ -200,7 +201,7 @@ class WeatherService:
                 (HTTP 503)") and safe to display directly in the UI.
         @details
         - Validates station_id exists in station_list before querying FMI
-        - Current weather symbol requires valid api_key and OpenWeatherMap API access
+        - Current weather symbol requires OPENWEATHER_API_KEY to be set in Django settings
         - Forecast covers the full OWM 3-hour list up to (but not including) today + 3 days;
           items with a malformed or missing dt_txt are skipped
         - Temperature is converted from Kelvin to Celsius (rounded to nearest integer)
@@ -221,14 +222,14 @@ class WeatherService:
         result["current_symbol"] = ""
         result["forecast"] = []
 
-        if api_key:
+        if settings.OPENWEATHER_API_KEY:
             city = get_station_city(station_info.formatted_name)
-            city_data = self.get_city_weather(city, station_info.coordinates, api_key)
+            city_data = self.get_city_weather(city, station_info.coordinates)
             if city_data and "weather" in city_data:
                 weather_id = city_data["weather"][0]["id"]
                 result["current_symbol"] = get_weather_symbol(weather_id)
 
-            forecast_data = self.get_forecast(station_info.coordinates, api_key)
+            forecast_data = self.get_forecast(station_info.coordinates)
             forecasts = []
             today = datetime.date.today()
             cutoff = today + datetime.timedelta(days=3)

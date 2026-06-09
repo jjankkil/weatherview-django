@@ -26,7 +26,7 @@ import datetime
 from unittest.mock import patch, MagicMock
 
 import requests as requests_lib
-from django.test import SimpleTestCase, Client
+from django.test import SimpleTestCase, Client, override_settings
 from django.core.cache import cache
 
 from weather.services.helpers import ok_to_add_station
@@ -339,12 +339,11 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(r.status_code, 200)
         data = r.json()
         self.assertEqual(data["language"], "fi")
-        self.assertEqual(data["openweathermap_api_key"], "")
 
         # POST update
         r = self._post(
             "/api/settings/save/",
-            data='{"language": "en", "openweathermap_api_key": "test-key"}',
+            data='{"language": "en"}',
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200)
@@ -352,7 +351,6 @@ class ViewTests(SimpleTestCase):
 
         r = self._get("/api/settings/")
         self.assertEqual(r.json()["language"], "en")
-        self.assertEqual(r.json()["openweathermap_api_key"], "test-key")
 
     def test_settings_save_rejects_bad_json(self):
         """@brief POST /api/settings/save/ with malformed JSON returns HTTP 400."""
@@ -399,18 +397,10 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(r.status_code, 502)
         self.assertIn("error", r.json())
 
+    @override_settings(OPENWEATHER_API_KEY="k")
     @patch("weather.services.weather_service.requests.get")
     def test_api_station_data_with_owm_key(self, mock_get):
         """@brief With an OWM key, station data response includes current_symbol and forecast list."""
-        # Pre-set API key via the real save endpoint (signed-cookie sessions
-        # cannot be manipulated through self.client.session directly).
-        r = self._post(
-            "/api/settings/save/",
-            data='{"openweathermap_api_key": "k", "language": "fi"}',
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 200)
-
         today_str = datetime.date.today().isoformat()
         owm_city = {"weather": [{"id": 800}]}
         owm_forecast = {
@@ -439,16 +429,10 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(data["forecast"][0]["symbol"], "☀")
         self.assertEqual(data["forecast"][0]["temperature"], "10 °C")
 
+    @override_settings(OPENWEATHER_API_KEY="k")
     @patch("weather.services.weather_service.requests.get")
     def test_forecast_excludes_items_on_or_after_cutoff(self, mock_get):
         """@brief Forecast items on or after today+3 are excluded; items within 3 days are included."""
-        r = self._post(
-            "/api/settings/save/",
-            data='{"openweathermap_api_key": "k", "language": "fi"}',
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 200)
-
         today = datetime.date.today()
         within = today + datetime.timedelta(days=2)
         cutoff = today + datetime.timedelta(days=3)
@@ -481,16 +465,10 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(len(data["forecast"]), 1)
         self.assertEqual(data["forecast"][0]["date"], within.isoformat())
 
+    @override_settings(OPENWEATHER_API_KEY="k")
     @patch("weather.services.weather_service.requests.get")
     def test_forecast_item_includes_date_field(self, mock_get):
         """@brief Each forecast item contains a 'date' field with the ISO date string."""
-        r = self._post(
-            "/api/settings/save/",
-            data='{"openweathermap_api_key": "k", "language": "fi"}',
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 200)
-
         tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
         owm_city = {"weather": [{"id": 800}]}
         owm_forecast = {
@@ -516,16 +494,10 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(item["date"], tomorrow)
         self.assertEqual(item["time"], "12:00")
 
+    @override_settings(OPENWEATHER_API_KEY="k")
     @patch("weather.services.weather_service.requests.get")
     def test_forecast_skips_items_with_short_dt_txt(self, mock_get):
         """@brief Forecast items with a dt_txt shorter than 10 characters are silently skipped."""
-        r = self._post(
-            "/api/settings/save/",
-            data='{"openweathermap_api_key": "k", "language": "fi"}',
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 200)
-
         today_str = datetime.date.today().isoformat()
         owm_city = {"weather": [{"id": 800}]}
         owm_forecast = {
