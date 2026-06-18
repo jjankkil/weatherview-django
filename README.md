@@ -16,7 +16,7 @@ Pick any of 400+ Finnish road weather stations and see current observations, FMI
 - 💧 Humidity, dew point, road surface temperature, visibility, temperature rate of change, present weather
 - 🌦️ Short-range forecast (all 3-hour OWM periods up to 3 days ahead, with paginated carousel) + current weather symbol
 - FI/SV/EN Finnish/Swedish/English UI toggle
-- 🔄 Smart auto-refresh based on each station's observation cadence
+- 🔄 Server-driven auto-refresh: the frontend schedules its next fetch only when the server signals new data is due; no blind fallback polling
 - ⭐ 5-item MRU station list, persisted in browser `localStorage`
 - ⏳ Wait cursor + dimmed card while loading
 - 📍 Automatic nearest-station selection using the browser Geolocation API (on first visit or when "Use my location" is enabled in Settings)
@@ -269,7 +269,7 @@ sudo systemctl restart weatherview
 | 🌐 Top-right button | Toggle between Finnish, Swedish, and English. Labels, wind direction, and weather condition values all switch language. |
 | ⚙️ Top-right button | Open settings (camera toggle, use-my-location toggle). |
 | **Päivitä nyt** button | Force an immediate refresh. |
-| _Seuraava päivitys: N s_ | Countdown to the next automatic refresh. |
+| _Seuraava päivitys: N s_ | Countdown to the next automatic refresh (shown only when the server signals new data is due). |
 | Camera image | Click to open a lightbox. Navigate with prev/next buttons, arrow keys, or swipe. Toggle fullscreen with the fullscreen button. |
 
 ---

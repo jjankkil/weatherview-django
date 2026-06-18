@@ -137,7 +137,7 @@ const WEEKDAYS_SV = ['Sö', 'Må', 'Ti', 'On', 'To', 'Fr', 'Lö'];
  * @property {boolean} showCamera Whether to display weather camera images.
  * @property {?number} refreshTimer Timeout ID for the scheduled weather refresh.
  * @property {?number} countdownTimer Interval ID for the countdown display timer.
- * @property {?number} refreshDueAt Epoch ms when the next refresh is due (null if not scheduled).
+ * @property {?number} refreshDueAt Epoch ms when new data will be available (null if unknown).
  * @property {boolean} loading Whether a weather data fetch is currently in progress.
  */
 const state = {
@@ -270,15 +270,10 @@ function clearCountdown() {
   dom.nextUpdateLabel.textContent = '';
 }
 
-function pauseCountdown() {
-  clearInterval(state.countdownTimer);
-  clearTimeout(state.refreshTimer);
-  state.countdownTimer = null;
-  state.refreshTimer = null;
-  dom.nextUpdateLabel.textContent = '';
-}
-
-function resumeCountdown(seconds) {
+function startNextUpdateDisplay(seconds) {
+  clearCountdown();
+  if (seconds <= 0) return;
+  state.refreshDueAt = Date.now() + seconds * 1000;
   dom.nextUpdateLabel.textContent = labels().nextUpdate.replace('{s}', seconds);
   state.countdownTimer = setInterval(() => {
     const remaining = Math.ceil((state.refreshDueAt - Date.now()) / 1000);
@@ -293,13 +288,6 @@ function resumeCountdown(seconds) {
   state.refreshTimer = setTimeout(() => {
     if (state.currentStationId) fetchWeather(state.currentStationId, true);
   }, seconds * 1000);
-}
-
-function scheduleRefresh(seconds) {
-  clearCountdown();
-  if (seconds <= 0) return;
-  state.refreshDueAt = Date.now() + seconds * 1000;
-  resumeCountdown(seconds);
 }
 
 function labels() {
@@ -350,16 +338,17 @@ function applyLabels() {
 /**
  * @brief Fetch and apply user settings from the backend session.
  *
- * Retrieves user preferences (language, API key, current station, camera visibility)
- * from the server and updates the global state. Gracefully handles network errors
- * by silently ignoring failures and retaining current state values.
+ * Retrieves user preferences (language, current station, camera visibility,
+ * follow-location) from the server and updates the global state. Gracefully
+ * handles network errors by silently ignoring failures and retaining current
+ * state values.
  *
  * @return {Promise<void>} Always resolves (errors are ignored).
  * @details
  * - Updates state.lang with user's language preference
- * - Updates state.apiKey with OpenWeatherMap API key (empty string if not set)
  * - Updates state.currentStationId with last selected station (null if not set)
  * - Updates state.showCamera with camera visibility preference (defaults to true)
+ * - Updates state.followLocation with follow-location preference (defaults to false)
  * - Network errors are silently caught; state retains default values on failure
  */
 async function fetchSettings() {
@@ -422,7 +411,6 @@ async function fetchWeather(stationId, fresh = false) {
       } catch (_) { /* response was not JSON */ }
       if (!msg) msg = labels().serviceError.replace('{code}', r.status);
       showError(msg);
-      scheduleRefresh(60);
       return;
     }
 
@@ -430,12 +418,11 @@ async function fetchWeather(stationId, fresh = false) {
     renderWeather(data);
     pushMru(stationId);
     if (state.stations.length > 0) populateStations(state.stations);
-    scheduleRefresh(data.seconds_until_next_update || 60);
+    startNextUpdateDisplay(data.seconds_until_next_update || 0);
     // Only load and display camera if user has enabled it in settings
     if (state.showCamera) showCameraForStation(stationId);
   } catch (e) {
     showError(labels().networkError);
-    scheduleRefresh(60);
   } finally {
     state.loading = false;
     dom.refreshBtn.disabled = false;
@@ -818,8 +805,8 @@ function initEvents() {
 /**
  * @brief Open the settings modal and populate current values.
  *
- * Loads the current API key and camera visibility settings into the modal form
- * before displaying it to the user.
+ * Loads the current camera visibility and follow-location settings into the
+ * modal form before displaying it to the user.
  */
 function openSettings() {
   dom.cameraToggle.checked = state.showCamera;
@@ -837,15 +824,15 @@ function closeSettings() {
 /**
  * @brief Save settings from the modal form to the backend and apply changes.
  *
- * Persists the user's settings (API key and camera visibility) to the server
- * session, then fetches fresh weather data. Immediately hides the camera panel
- * if camera visibility was disabled.
+ * Persists the user's settings (camera visibility and follow-location) to the
+ * server session, then fetches fresh weather data or triggers geolocation.
  *
  * @details
- * - Saves openweathermap_api_key and show_camera to backend session
+ * - Saves show_camera and follow_location to backend session
  * - Updates global state with new settings values
  * - Immediately hides camera panel if show_camera is disabled
- * - Triggers fetchWeather to refresh data (skips camera fetch if disabled)
+ * - If follow_location is enabled, calls selectNearestByGeolocation; otherwise
+ *   triggers fetchWeather for the current station
  */
 async function onSettingsSave() {
   const showCamera = dom.cameraToggle.checked;
@@ -953,14 +940,31 @@ async function init() {
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    pauseCountdown();
+    clearInterval(state.countdownTimer);
+    clearTimeout(state.refreshTimer);
+    state.countdownTimer = null;
+    state.refreshTimer = null;
+    dom.nextUpdateLabel.textContent = '';
   } else if (state.refreshDueAt !== null) {
     const remaining = Math.ceil((state.refreshDueAt - Date.now()) / 1000);
     if (remaining <= 0) {
       state.refreshDueAt = null;
       if (state.currentStationId) fetchWeather(state.currentStationId, true);
     } else {
-      resumeCountdown(remaining);
+      dom.nextUpdateLabel.textContent = labels().nextUpdate.replace('{s}', remaining);
+      state.countdownTimer = setInterval(() => {
+        const r = Math.ceil((state.refreshDueAt - Date.now()) / 1000);
+        if (r <= 0) {
+          clearInterval(state.countdownTimer);
+          state.countdownTimer = null;
+          dom.nextUpdateLabel.textContent = '';
+        } else {
+          dom.nextUpdateLabel.textContent = labels().nextUpdate.replace('{s}', r);
+        }
+      }, 1000);
+      state.refreshTimer = setTimeout(() => {
+        if (state.currentStationId) fetchWeather(state.currentStationId, true);
+      }, remaining * 1000);
     }
   }
 });

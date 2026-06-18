@@ -320,7 +320,7 @@ Callers check `has_error`:
 - `r.ok` is false → try to parse JSON; show `data.error` if present (the clean backend message).
 - If JSON parsing fails (e.g. Django debug HTML 500 page) → fall back to the localized `serviceError` label, including the HTTP status code.
 - `fetch()` throws (network-level failure, e.g. no connectivity) → show the localized `networkError` label.
-- In all error cases `scheduleRefresh(60)` fires so the UI retries automatically after 60 seconds.
+- In all error cases the countdown is cleared and no automatic retry is scheduled; the user must click **Päivitä nyt** to retry.
 
 **Frontend (camera):** Weather camera image loading failures are gracefully handled:
 
@@ -556,5 +556,5 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 - **API key**: `OPENWEATHER_API_KEY` is read from the environment at startup via `settings.OPENWEATHER_API_KEY`. Set it in the server's environment or `EnvironmentFile`. It is never logged or stored in sessions. If unset, OWM calls are skipped and `current_symbol`/`forecast` are returned empty.
 - **Rate limiting**: `_is_rate_limited(ip)` in `views.py` implements a sliding-window counter stored in `LocMemCache`. The limit is configurable via the `WEATHER_RATE_LIMIT` env var (default `15/m`). Exceeding the limit returns HTTP 429. Because the counter lives in `LocMemCache`, it resets on process restart and is not shared across workers.
 - **Cache backend**: Default is in-process `LocMemCache`. Two cache namespaces are used: `weather_station_list` (station catalogue, TTL ≈ 5 min) and `station_data:{id}` (per-station observation response, TTL = `next_update_at - now + 30 s`). Swap to Redis/Memcached if running multiple workers and you want a shared station list, rate-limit store, and observation cache.
-- **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py](../weather/services/weather_service.py)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as HTTP 502 with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner and schedules an automatic retry after 60 seconds.
+- **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py](../weather/services/weather_service.py)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as HTTP 502 with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner; no automatic retry is scheduled — the user must click **Päivitä nyt** to retry.
 - **i18n**: Language is a string flag (`fi`/`sv`/`en`) passed through to `WeatherStation.to_dict`, which calls `wind_direction_as_text` and `present_weather_localized` for server-side translation. Present weather labels and Digitraffic SADE sensor condition strings are translated via a lookup table in `WeatherStation`. No Django `gettext` machinery is involved.
