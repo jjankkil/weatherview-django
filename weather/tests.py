@@ -23,6 +23,7 @@ that actually hits Digitraffic and the FMI open data WFS is in
 """
 
 import datetime
+import json
 from datetime import timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
@@ -251,6 +252,47 @@ class HelpersTests(SimpleTestCase):
         self.assertEqual(wind_direction_as_text(180, "en"), "from S")
         self.assertEqual(wind_direction_as_text(None), "")
 
+    def test_wind_direction_as_text_all_cardinal_directions_fi(self):
+        """@brief wind_direction_as_text() maps every cardinal direction correctly in Finnish."""
+        cases = [
+            (45,  "koillisesta"),   # NE: 22.5–67.5
+            (90,  "idästä"),        # E: 67.5–112.5
+            (135, "kaakosta"),      # SE: 112.5–157.5
+            (225, "lounaasta"),     # SW: 202.5–247.5
+            (270, "lännestä"),      # W: 247.5–292.5
+            (315, "luoteesta"),     # NW: 292.5–337.5
+            (0,   "pohjoisesta"),   # N: 337.5–22.5
+        ]
+        for deg, expected in cases:
+            with self.subTest(deg=deg):
+                self.assertEqual(wind_direction_as_text(deg, "fi"), expected)
+
+    def test_wind_direction_as_text_swedish(self):
+        """@brief wind_direction_as_text() returns correct Swedish strings for sv locale."""
+        self.assertEqual(wind_direction_as_text(180, "sv"), "från S")
+        self.assertEqual(wind_direction_as_text(0,   "sv"), "från N")
+        self.assertEqual(wind_direction_as_text(90,  "sv"), "från Ö")
+
+    def test_wind_direction_as_text_wraps_degrees_above_360(self):
+        """@brief wind_direction_as_text() normalises degrees > 360 by subtracting 360."""
+        # 540 − 360 = 180 → S
+        self.assertEqual(wind_direction_as_text(540, "fi"), "etelästä")
+
+    def test_format_station_name_four_tokens(self):
+        """@brief format_station_name() handles 4-token names by appending the extra token."""
+        self.assertEqual(
+            format_station_name("E18_Helsinki_Vantaa_Extra"),
+            "Helsinki, Vantaa E18 Extra",
+        )
+
+    def test_format_station_name_two_tokens(self):
+        """@brief format_station_name() handles 2-token names."""
+        self.assertEqual(format_station_name("KEHÄ_Helsinki"), "Helsinki, KEHÄ")
+
+    def test_format_station_name_single_token_unchanged(self):
+        """@brief format_station_name() returns a single-token name unchanged."""
+        self.assertEqual(format_station_name("JustOne"), "JustOne")
+
 
 class PhysicsTests(SimpleTestCase):
     """@brief Tests for FMI feels-like temperature physics calculations."""
@@ -267,6 +309,14 @@ class PhysicsTests(SimpleTestCase):
         # warm + humid -> simmer branch
         val = fmi_feels_like_temperature(wind=2.0, rh=80.0, temp=25.0)
         self.assertIsInstance(val, float)
+
+    def test_feels_like_returns_invalid_when_any_input_is_invalid(self):
+        """@brief fmi_feels_like_temperature() returns INVALID_VALUE when any argument is INVALID_VALUE."""
+        from weather.services.definitions import Constants
+        iv = Constants.INVALID_VALUE
+        self.assertEqual(fmi_feels_like_temperature(iv, 80.0, 10.0), iv)
+        self.assertEqual(fmi_feels_like_temperature(5.0, iv, 10.0), iv)
+        self.assertEqual(fmi_feels_like_temperature(5.0, 80.0, iv), iv)
 
 
 # ── Model parsing ───────────────────────────────────────────
@@ -377,6 +427,66 @@ class ModelParsingTests(SimpleTestCase):
         ws.parse(payload)
         _, text_en = ws.present_weather_localized("en")
         self.assertEqual(text_en, "Tuntematon")
+
+    def test_sensor_parse_missing_key_returns_false(self):
+        """@brief Sensor.parse() returns False when a required key is absent."""
+        from weather.services.weather_station import Sensor
+        self.assertFalse(Sensor().parse({}))
+        self.assertFalse(Sensor().parse({"id": 1, "stationId": 2, "name": "X"}))
+
+    def test_weather_station_visibility_100_to_999_m(self):
+        """@brief visibility_str formats 100–999 m values rounded down to nearest 100 m."""
+        ws = WeatherStation()
+        payload = {**_STATION_DATA_PAYLOAD, "sensorValues": [
+            {"id": 58, "stationId": 12345, "name": "NÄKYVYYS_M", "shortName": "Nak",
+             "measuredTime": "2026-05-12T12:50:00Z", "value": 450, "unit": "m"},
+        ]}
+        ws.parse(payload)
+        self.assertEqual(ws.visibility_str, "400 m")
+
+    def test_weather_station_visibility_below_100_m(self):
+        """@brief visibility_str formats < 100 m values rounded down to nearest 10 m."""
+        ws = WeatherStation()
+        payload = {**_STATION_DATA_PAYLOAD, "sensorValues": [
+            {"id": 58, "stationId": 12345, "name": "NÄKYVYYS_M", "shortName": "Nak",
+             "measuredTime": "2026-05-12T12:50:00Z", "value": 75, "unit": "m"},
+        ]}
+        ws.parse(payload)
+        self.assertEqual(ws.visibility_str, "70 m")
+
+    def test_weather_station_visibility_negative_returns_empty(self):
+        """@brief visibility_str returns empty string when visibility is negative."""
+        ws = WeatherStation()
+        payload = {**_STATION_DATA_PAYLOAD, "sensorValues": [
+            {"id": 58, "stationId": 12345, "name": "NÄKYVYYS_M", "shortName": "Nak",
+             "measuredTime": "2026-05-12T12:50:00Z", "value": -1, "unit": "m"},
+        ]}
+        ws.parse(payload)
+        self.assertEqual(ws.visibility_str, "")
+
+    def test_present_weather_swedish(self):
+        """@brief present_weather_localized('sv') returns Swedish-translated condition strings."""
+        payload = {**_STATION_DATA_PAYLOAD, "sensorValues": [
+            {"id": 22, "stationId": 12345, "name": "SADE", "shortName": "Sade",
+             "measuredTime": "2026-05-12T12:50:00Z", "value": 0.0,
+             "sensorValueDescriptionFi": "Pouta"},
+        ]}
+        ws = WeatherStation()
+        ws.parse(payload)
+        is_precip, text = ws.present_weather_localized("sv")
+        self.assertFalse(is_precip)
+        self.assertEqual(text, "Torrt")
+
+        payload2 = {**_STATION_DATA_PAYLOAD, "sensorValues": [
+            {"id": 22, "stationId": 12345, "name": "SADE", "shortName": "Sade",
+             "measuredTime": "2026-05-12T12:50:00Z", "value": 2.0,
+             "sensorValueDescriptionFi": "Kohtalainen"},
+        ]}
+        ws2 = WeatherStation()
+        ws2.parse(payload2)
+        is_precip2, text2 = ws2.present_weather_localized("sv")
+        self.assertTrue(is_precip2)
+        self.assertEqual(text2, "Måttligt regn")
 
 
 # ── View / API endpoints ────────────────────────────────────
@@ -540,6 +650,92 @@ class ViewTests(SimpleTestCase):
         data = r.json()
         self.assertIn("error", data)
         self.assertIn("500", data["error"])
+
+    @override_settings(WEATHER_RATE_LIMIT="2/m")
+    @patch("weather.services.weather_service.requests.get")
+    def test_api_station_data_rate_limited(self, mock_get):
+        """@brief Third request from the same IP within the sliding window returns HTTP 429."""
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_hourly(),
+            _mock_fmi_daily(),
+        ]
+        self._get("/api/station/12345/")  # 1st — ok (populates cache)
+        self._get("/api/station/12345/")  # 2nd — ok (served from response cache)
+        r = self._get("/api/station/12345/")  # 3rd — rate limited
+        self.assertEqual(r.status_code, 429)
+        self.assertIn("error", r.json())
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_api_nearest_station_no_stations_returns_503(self, mock_get):
+        """@brief GET /api/nearest-station/ returns 503 when the station list is empty."""
+        mock_get.return_value = _mock_response({"features": []})
+        r = self._get("/api/nearest-station/?lat=60.0&lon=25.0")
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("error", r.json())
+
+    def test_settings_save_non_dict_body_returns_400(self):
+        """@brief POST /api/settings/save/ with a JSON array body returns HTTP 400."""
+        r = self._post(
+            "/api/settings/save/",
+            data="[1, 2, 3]",
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("JSON object", r.json()["error"])
+
+    def test_settings_save_invalid_language_returns_400(self):
+        """@brief POST /api/settings/save/ with an unsupported language code returns HTTP 400."""
+        r = self._post(
+            "/api/settings/save/",
+            data='{"language": "de"}',
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("language", r.json()["error"])
+
+    def test_settings_save_invalid_show_camera_type_returns_400(self):
+        """@brief POST /api/settings/save/ with show_camera as a non-boolean returns HTTP 400."""
+        r = self._post(
+            "/api/settings/save/",
+            data='{"show_camera": "yes"}',
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("show_camera", r.json()["error"])
+
+    def test_settings_save_invalid_follow_location_type_returns_400(self):
+        """@brief POST /api/settings/save/ with follow_location as a non-boolean returns HTTP 400."""
+        r = self._post(
+            "/api/settings/save/",
+            data='{"follow_location": 1}',
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("follow_location", r.json()["error"])
+
+    def test_settings_save_invalid_station_id_returns_400(self):
+        """@brief POST /api/settings/save/ with an invalid current_station_id returns HTTP 400."""
+        for val in [0, -1, True, "abc"]:
+            with self.subTest(val=val):
+                r = self._post(
+                    "/api/settings/save/",
+                    data=json.dumps({"current_station_id": val}),
+                    content_type="application/json",
+                )
+                self.assertEqual(r.status_code, 400)
+                self.assertIn("current_station_id", r.json()["error"])
+
+    def test_settings_save_station_name_too_long_returns_400(self):
+        """@brief POST /api/settings/save/ with current_station_name > 200 chars returns HTTP 400."""
+        r = self._post(
+            "/api/settings/save/",
+            data=json.dumps({"current_station_name": "x" * 201}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("current_station_name", r.json()["error"])
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
@@ -750,3 +946,49 @@ class WeatherServiceErrorTests(SimpleTestCase):
         self.assertTrue(svc.has_error)
         self.assertEqual(svc._status, 0)
         self.assertIn("Connection refused", svc.error_message)
+
+
+# ── Station info edge cases ─────────────────────────────────
+class StationInfoTests(SimpleTestCase):
+    """@brief Tests for WeatherStationInfo and WeatherStationList edge cases."""
+
+    def test_station_info_parse_malformed_returns_false(self):
+        """@brief WeatherStationInfo.parse() returns False when required fields are missing."""
+        from weather.services.station_info import WeatherStationInfo
+        self.assertFalse(WeatherStationInfo().parse({}))
+        self.assertFalse(WeatherStationInfo().parse({"geometry": {}, "id": 1, "properties": {}}))
+
+    def test_station_list_find_by_name(self):
+        """@brief WeatherStationList.find_by_name() returns a station by formatted name or None."""
+        sl = WeatherStationList()
+        sl.parse(_STATION_LIST_PAYLOAD["features"])
+        found = sl.find_by_name("Oulu, Ritaharju vt4")
+        self.assertIsNotNone(found)
+        self.assertEqual(found.id, 12345)
+        self.assertIsNone(sl.find_by_name("Does Not Exist"))
+
+
+# ── FmiXmlParser edge cases ─────────────────────────────────
+class FmiXmlParserTests(SimpleTestCase):
+    """@brief Tests for FmiXmlParser boundary conditions."""
+
+    def test_parse_empty_string_returns_empty_dict(self):
+        """@brief FmiXmlParser.parse() returns {} when xml_text is empty."""
+        from weather.services.weather_service import FmiXmlParser
+        self.assertEqual(FmiXmlParser.parse(""), {})
+
+    def test_parse_invalid_xml_returns_empty_dict(self):
+        """@brief FmiXmlParser.parse() returns {} on malformed XML input."""
+        from weather.services.weather_service import FmiXmlParser
+        self.assertEqual(FmiXmlParser.parse("<<<not valid xml>>>"), {})
+
+
+# ── _parse_timestamp edge cases ──────────────────────────────
+class ParseTimestampTests(SimpleTestCase):
+    """@brief Tests for weather_station._parse_timestamp fallback behaviour."""
+
+    def test_invalid_timestamp_returns_epoch(self):
+        """@brief _parse_timestamp() falls back to epoch datetime on unparseable input."""
+        from weather.services.weather_station import _parse_timestamp
+        result = _parse_timestamp("xXxNOT_A_DATE!@#")
+        self.assertEqual(result.year, 1970)
