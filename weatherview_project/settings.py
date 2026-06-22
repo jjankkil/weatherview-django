@@ -13,6 +13,7 @@
 #  | WVD_SESSION_COOKIE_AGE | `1209600` (14 days) | Session lifetime in seconds |
 #  | WVD_SECURE_HSTS_SECONDS | `31536000` (prod) / `0` (debug) | HSTS max-age |
 #  | WEATHER_RATE_LIMIT | `15/m` | Rate limit for weather API endpoint (per IP), e.g. "15/m" |
+#  | WVD_REDIS_URL | *(unset)* | Redis URL for caching. When unset: LocMemCache (single-worker dev). When set: RedisCache (multi-worker prod). |
 #
 #  @author Jari Jankkila
 #  @date 2026
@@ -80,12 +81,26 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG  ##< Apply HSTS policy to all subdoma
 SECURE_HSTS_PRELOAD = not DEBUG  ##< Opt into HSTS preload list in production.
 SECURE_CONTENT_TYPE_NOSNIFF = True  ##< Prevent MIME-type sniffing by the browser.
 
-CACHES = {  ##< In-process memory cache; station list TTL is 5 minutes.
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "TIMEOUT": 300,  # station list cached for 5 minutes
+_redis_url = os.getenv("WVD_REDIS_URL")  ##< Redis URL; None when WVD_REDIS_URL is unset (falls back to LocMemCache).
+
+if _redis_url:  ##< Use Redis when WVD_REDIS_URL is set (multi-worker production).
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": _redis_url,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+            "TIMEOUT": 300,  # station list cached for 5 minutes
+        }
     }
-}
+else:  ##< Fall back to LocMemCache for single-worker development (no Redis required).
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "TIMEOUT": 300,  # station list cached for 5 minutes
+        }
+    }
 
 LANGUAGE_CODE = "fi"  ##< Default language code (Finnish).
 TIME_ZONE = "Europe/Helsinki"  ##< Default time zone for the application.

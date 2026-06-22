@@ -17,13 +17,12 @@ Pick any of 400+ Finnish road weather stations and see current observations, FMI
 - 🌦️ Forecast carousel: 3-hourly slots for the rest of today (labeled e.g. _Ma 9–12_), followed by one daily summary per future day (up to 8 days); paginated in groups of three + current weather symbol from FMI WFS open data (no API key needed)
 - FI/SV/EN Finnish/Swedish/English UI toggle
 - 🔄 Server-driven auto-refresh: the frontend schedules its next fetch only when the server signals new data is due; no blind fallback polling
-- ⭐ 5-item MRU station list, persisted in browser `localStorage`
+- ⭐ 10-item MRU station list, persisted in browser `localStorage`
 - ⏳ Wait cursor + dimmed card while loading
 - 📍 Automatic nearest-station selection using the browser Geolocation API (on first visit or when "Use my location" is enabled in Settings)
 - 💾 Session-based settings (current station, language, camera visibility, follow-location)
 - Built-in IP-based rate limiting on the weather API endpoint (configurable)
-- 🚀 In-memory station-list cache (5 min) — no repeated 447-row downloads
-- ⚡ Per-station observation cache — Digitraffic is only queried by the scheduled auto-refresh; manual refreshes and page reloads are served from cache
+- 🚀 Station-list cache (5 min TTL) and per-station observation cache — backed by Redis in production; falls back to in-process LocMemCache for single-worker development (no Redis required)
 
 No database required. Settings live in signed-cookie sessions; observation data is cached per station and refreshed only when new data is expected.
 
@@ -35,6 +34,7 @@ No database required. Settings live in signed-cookie sessions; observation data 
 
 - Python **3.11+** (tested on 3.13)
 - Internet access (Digitraffic + FMI open data)
+- **Redis** (optional for local dev — if `WVD_REDIS_URL` is not set the app uses an in-process cache and must run with a single Gunicorn worker; set `WVD_REDIS_URL` for multi-worker production deployments)
 
 ### Install & run
 
@@ -90,7 +90,7 @@ This section describes deploying the app on a Linux server (tested on Raspberry 
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3 python3-venv git nginx
+sudo apt install -y python3 python3-venv git nginx redis-server
 ```
 
 ### 2. Clone and install
@@ -127,6 +127,7 @@ WVD_ALLOWED_HOSTS=<hostname-or-ip>,localhost
 WEATHER_RATE_LIMIT=15/m
 WVD_SESSION_COOKIE_AGE=1209600
 WVD_SECURE_HSTS_SECONDS=31536000
+# WVD_REDIS_URL=redis://localhost:6379/0  # set to enable Redis (required for --workers > 1)
 ```
 
 Restrict permissions so the key is not world-readable:
@@ -149,16 +150,13 @@ Create `/etc/systemd/system/weatherview.service`:
 ```ini
 [Unit]
 Description=WeatherView Django app
-After=network.target
+After=network.target redis.service
 
 [Service]
 User=pi
 EnvironmentFile=/opt/weatherview/.env
 WorkingDirectory=/opt/weatherview
-ExecStart=/opt/weatherview/.venv/bin/gunicorn weatherview_project.wsgi:application --bind 127.0.0.1:8000 --workers 1
-; Single worker required: the station list cache and IP rate limiter use LocMemCache,
-; which is not shared across processes. Scale with multiple instances behind a load
-; balancer, or swap to Redis if you need multiple workers.
+ExecStart=/opt/weatherview/.venv/bin/gunicorn weatherview_project.wsgi:application --bind 127.0.0.1:8000 --workers 4
 Restart=always
 RestartSec=5
 
@@ -258,7 +256,7 @@ sudo systemctl status weatherview
 
 | Element                  | What it does                                                                                                                   |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Station dropdown         | Pick any station. Most-recently-used 5 are grouped at the top.                                                                 |
+| Station dropdown         | Pick any station. Most-recently-used 10 are grouped at the top.                                                                |
 | 🔍 Search button         | Open a search modal — type any part of a station name to filter and select it.                                                 |
 | 🌐 Top-right button      | Toggle between Finnish, Swedish, and English. Labels, wind direction, and weather condition values all switch language.        |
 | ⚙️ Top-right button      | Open settings (camera toggle, use-my-location toggle).                                                                         |
@@ -294,8 +292,12 @@ weatherview-django/
     │   └── index.html
     ├── static/weather/
     │   ├── css/style.css
-    │   ├── js/app.js           # Vanilla JS frontend (SPA logic, UI)
-    │   ├── js/camera.js        # Weather camera module (carousel, lightbox)
+    │   ├── js/app.js           # Bootstrap + event wiring
+    │   ├── js/api.js           # fetch wrappers (stations, station data, settings)
+    │   ├── js/render.js        # DOM rendering, i18n labels, populateStations
+    │   ├── js/state.js         # global state object + MRU helpers
+    │   ├── js/geo.js           # geolocation / nearest-station selection
+    │   ├── js/camera.js        # weather camera carousel + lightbox
     │   └── js/constants.js     # UI configuration constants
     └── tests.py                # Offline test suite (mocked HTTP)
 scripts/
@@ -324,10 +326,10 @@ scripts/
 
 ### Stack
 
-- **Backend** — Django 6, `requests`, `python-dateutil`
-- **Frontend** — Plain HTML + CSS + vanilla JS (no build step, no framework)
-- **Storage** — None. Signed-cookie sessions for user prefs, in-memory cache
-  for the station list. `localStorage` for the client-side MRU list.
+- **Backend** — Django 6, `requests`, `python-dateutil`, `django-redis`
+- **Frontend** — Plain HTML + CSS + vanilla JS ES modules (no build step, no framework)
+- **Cache** — Redis (via `django-redis`) when `WVD_REDIS_URL` is set; LocMemCache otherwise
+- **Storage** — None for user data. Signed-cookie sessions for user prefs. `localStorage` for the client-side MRU list.
 
 ---
 
@@ -366,6 +368,16 @@ python manage.py test weather
 ```
 
 These run in well under a second and require no network access.
+
+**Playwright browser tests** — four end-to-end tests driven by a headless Chromium browser (external API calls are mocked via `page.route()`):
+
+```bash
+pip install -r requirements-dev.txt
+playwright install chromium
+pytest tests/e2e/
+```
+
+Coverage: page load + station list populates; station selection renders weather data; language switch updates all labels; language setting persists across a page reload.
 
 **Live smoke test** — hits Digitraffic and FMI open data end-to-end (no API key needed):
 

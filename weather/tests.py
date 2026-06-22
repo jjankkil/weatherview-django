@@ -380,6 +380,7 @@ class ModelParsingTests(SimpleTestCase):
 
 
 # ── View / API endpoints ────────────────────────────────────
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class ViewTests(SimpleTestCase):
     """@brief Integration tests for the Django view / REST API endpoints."""
 
@@ -541,6 +542,7 @@ class ViewTests(SimpleTestCase):
         self.assertIn("500", data["error"])
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class NextUpdateAtTests(SimpleTestCase):
     """@brief Unit tests for WeatherStation.next_update_at and seconds_until_next_update."""
 
@@ -602,6 +604,7 @@ class NextUpdateAtTests(SimpleTestCase):
         self.assertLessEqual(ws.seconds_until_next_update, 600)
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class StationDataCacheTests(SimpleTestCase):
     """@brief Tests for per-station response caching in api_station_data."""
 

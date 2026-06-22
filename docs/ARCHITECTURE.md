@@ -20,7 +20,11 @@ No database is used. All observation data is fetched on demand and parsed in mem
 ```mermaid
 flowchart LR
     subgraph Browser
-        UI["index.html + app.js<br/>(vanilla JS SPA)"]
+        UI["index.html + app.js<br/>(bootstrap + event wiring)"]
+        APIJS["api.js<br/>(fetch wrappers)"]
+        RENDER["render.js<br/>(DOM + i18n labels)"]
+        STATE["state.js<br/>(app state + MRU)"]
+        GEOJS["geo.js<br/>(geolocation)"]
         CAM["camera.js<br/>(carousel, lightbox)"]
         CONST["constants.js<br/>(UI config)"]
         LS[("localStorage<br/>MRU list")]
@@ -31,11 +35,14 @@ flowchart LR
         URLS["urls.py<br/>(root + weather)"]
         VIEWS["weather/views.py<br/>JSON endpoints"]
         SESSION[("Signed-cookie<br/>session")]
-        CACHE[("LocMem cache<br/>'weather_station_list'<br/>'station_data:{id}'")]
+        CACHE[("Django cache<br/>(Redis or LocMemCache)<br/>'weather_station_list'<br/>'station_data:{id}:{lang}'")]
     end
 
     subgraph Services["weather/services/"]
-        WS["WeatherService<br/>HTTP client"]
+        HC["HttpClient<br/>(transport)"]
+        FMIP["FmiXmlParser<br/>(XML → dict)"]
+        FMIFS["FmiForecastService<br/>(forecast)"]
+        WS["WeatherService<br/>(orchestration)"]
         SL["WeatherStationList<br/>WeatherStationInfo"]
         WST["WeatherStation<br/>Sensor"]
         PHY["physics.py<br/>FMI feels-like"]
@@ -59,25 +66,33 @@ flowchart LR
     VIEWS --> SESSION
     VIEWS --> CACHE
     VIEWS --> WS
+    WS --> HC
+    WS --> FMIFS
     WS --> SL
     WS --> WST
+    FMIFS --> HC
+    FMIFS --> FMIP
+    HC -->|HTTPS| DT
+    HC -->|HTTPS| FMI_WFS
     WST --> PHY
     WST --> UIH
     SL --> UIH
     WS --> DEF
-    WS -->|HTTPS| DT
-    WS -->|HTTPS| FMI_WFS
 ```
 
 Key source locations:
 
 - [weather/views.py](../weather/views.py) — JSON endpoints
 - [weather/urls.py](../weather/urls.py) — URL routing
-- [weather/services/weather_service.py](../weather/services/weather_service.py) — outbound HTTP
+- [weather/services/weather_service.py](../weather/services/weather_service.py) — `HttpClient` (transport), `FmiXmlParser` (XML), `FmiForecastService` (forecast), `WeatherService` (orchestration)
 - [weather/services/station_info.py](../weather/services/station_info.py) — station catalogue model
 - [weather/services/weather_station.py](../weather/services/weather_station.py) — observation model + derived properties
 - [weather/services/physics.py](../weather/services/physics.py) — FMI feels-like formula
-- [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — SPA logic (fetch, render, settings, search, geolocation, forecast)
+- [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — bootstrap + event wiring
+- [weather/static/weather/js/api.js](../weather/static/weather/js/api.js) — fetch wrappers (settings, stations, station data, countdown)
+- [weather/static/weather/js/render.js](../weather/static/weather/js/render.js) — DOM rendering, i18n labels, `populateStations`, `forecastGoTo`
+- [weather/static/weather/js/state.js](../weather/static/weather/js/state.js) — global app state object, `forecastCarousel`, `FORECAST_PAGE_SIZE`, MRU helpers
+- [weather/static/weather/js/geo.js](../weather/static/weather/js/geo.js) — geolocation / nearest-station selection
 - [weather/static/weather/js/camera.js](../weather/static/weather/js/camera.js) — weather camera module (carousel, lightbox, station lookup)
 - [weather/static/weather/js/constants.js](../weather/static/weather/js/constants.js) — UI configuration constants
 - [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) — UI styling and weather camera layout
@@ -88,18 +103,27 @@ Key source locations:
 
 ```mermaid
 classDiagram
-    class WeatherService {
-        -_error: str
-        -_status: int
+    class HttpClient {
+        #_error: str
+        #_status: int
         +has_error: bool
         +error_message: str
+        #_get(url, key) dict|list
+        #_get_xml(url) str
+    }
+
+    class FmiXmlParser {
+        +parse(xml_text)$ dict
+    }
+
+    class FmiForecastService {
+        +get_forecast(coordinates) tuple
+    }
+
+    class WeatherService {
         +get_station_list() WeatherStationList
         +get_station_data(station_id) WeatherStation
         +build_full_weather_response(id, list, lang) dict
-        -_get(url) dict|list
-        -_get_xml(url) str
-        -_parse_fmi_xml(xml_text) dict
-        -_get_fmi_forecast(coordinates) tuple
     }
 
     class WeatherStationList {
@@ -157,6 +181,10 @@ classDiagram
         +parse(json) bool
     }
 
+    WeatherService --|> HttpClient
+    WeatherService *-- FmiForecastService
+    FmiForecastService ..> HttpClient : uses
+    FmiForecastService ..> FmiXmlParser : uses
     WeatherService ..> WeatherStationList : creates
     WeatherService ..> WeatherStation : creates
     WeatherStationList "1" *-- "many" WeatherStationInfo
@@ -168,14 +196,14 @@ classDiagram
 
 ## 4. HTTP API (Server Surface)
 
-| Method | Path                     | View                  | Purpose                                           |
-| ------ | ------------------------ | --------------------- | ------------------------------------------------- |
-| GET    | `/`                      | `index`               | Serves the SPA shell (`index.html`)               |
-| GET    | `/api/stations/`         | `api_stations`        | Returns the cached, filtered station catalogue    |
-| GET    | `/api/station/<int:id>/` | `api_station_data`    | Parsed observations + FMI WFS forecast            |
-| GET    | `/api/settings/`         | `api_settings_get`    | Reads session settings                            |
-| POST   | `/api/settings/save/`    | `api_settings_save`   | Writes whitelisted session settings (CSRF-exempt) |
-| GET    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to `?lat=…&lon=…`     |
+| Method | Path                     | View                  | Purpose                                              |
+| ------ | ------------------------ | --------------------- | ---------------------------------------------------- |
+| GET    | `/`                      | `index`               | Serves the SPA shell (`index.html`)                  |
+| GET    | `/api/stations/`         | `api_stations`        | Returns the cached, filtered station catalogue       |
+| GET    | `/api/station/<int:id>/` | `api_station_data`    | Parsed observations + FMI WFS forecast               |
+| GET    | `/api/settings/`         | `api_settings_get`    | Reads session settings                               |
+| POST   | `/api/settings/save/`    | `api_settings_save`   | Writes whitelisted session settings (CSRF-protected) |
+| GET    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to `?lat=…&lon=…`        |
 
 Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `follow_location`. Anything else in the POST body is silently dropped ([views.py](../weather/views.py)).
 
@@ -191,7 +219,7 @@ sequenceDiagram
     actor User
     participant Browser as Browser (app.js)
     participant Django
-    participant Cache as LocMem cache
+    participant Cache as Django cache
     participant DT as Digitraffic
 
     User->>Browser: open /
@@ -224,7 +252,7 @@ sequenceDiagram
     autonumber
     participant Browser
     participant View as api_station_data
-    participant SC as LocMem cache<br/>(station_data:{id})
+    participant SC as Django cache<br/>(station_data:{id}:{lang})
     participant WS as WeatherService
     participant DT as Digitraffic<br/>(weather data)
     participant FMI as FMI WFS open data
@@ -333,10 +361,10 @@ Callers check `has_error`:
 flowchart TB
     subgraph Server-side
         S1[("Signed-cookie session<br/>wx_settings")]
-        S2[("django.core.cache (locmem)<br/>weather_station_list, TTL≈5min<br/>station_data:{id}, TTL=next_update_at+30s")]
+        S2[("django.core.cache<br/>(Redis when WVD_REDIS_URL set;<br/>LocMemCache otherwise)<br/>weather_station_list, TTL≈5min<br/>station_data:{id}:{lang}, TTL=next_update_at+30s")]
     end
     subgraph Client-side
-        C1[("localStorage<br/>MRU station list, max 5")]
+        C1[("localStorage<br/>MRU station list, max 10")]
         C2[("In-memory JS state<br/>current station, timer")]
         C3[("In-memory JS cache<br/>weathercam stations")]
     end
@@ -352,7 +380,7 @@ flowchart TB
     C3 -.holds.-> K7["GeoJSON camera stations<br/>from Digitraffic weathercam API"]
 ```
 
-- The station list and IP rate-limit counters are cached per-process (`LocMemCache`). A single Gunicorn worker is therefore required unless you swap to a shared cache backend (Redis/Memcached).
+- The cache backend is `django_redis.cache.RedisCache` when `WVD_REDIS_URL` is set, or in-process `LocMemCache` when it is not. With `LocMemCache` (the dev default), a single Gunicorn worker is required; with Redis, multiple workers share the station list and rate-limit counters across processes.
 - Weathercam station data is cached in-memory on the client; it persists for the page lifetime and is refreshed on browser reload.
 
 ---
@@ -443,7 +471,7 @@ The forecast section renders a hybrid paginated carousel:
 - **Visual distinction**: Daily items receive the CSS class `forecast-item--daily` (dashed border, slightly reduced opacity) to distinguish them from intra-day 3-hourly items.
 - **Reset on refresh**: `forecastCarousel.index` resets to 0 whenever new station data arrives.
 
-Related code: [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) (`forecastGoTo`, `forecastCarousel`, `FORECAST_PAGE_SIZE`) · [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) (`.forecast-carousel`, `.forecast-nav-btn`) · [weather/services/weather_service.py](../weather/services/weather_service.py) (`build_full_weather_response`).
+Related code: [weather/static/weather/js/render.js](../weather/static/weather/js/render.js) (`forecastGoTo`) · [weather/static/weather/js/state.js](../weather/static/weather/js/state.js) (`forecastCarousel`, `FORECAST_PAGE_SIZE`) · [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) (event wiring) · [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) (`.forecast-carousel`, `.forecast-nav-btn`) · [weather/services/weather_service.py](../weather/services/weather_service.py) (`build_full_weather_response`).
 
 ---
 
@@ -453,16 +481,16 @@ The frontend displays weather camera images for each station. Camera logic lives
 
 ### 9.1 Module structure
 
-| Export                                       | Description                                                         |
-| -------------------------------------------- | ------------------------------------------------------------------- |
-| `initCamera(state, dom, labels, setVisible)` | One-time setup; stores injected deps                                |
-| `showCameraForStation(lat, lon)`             | Finds the nearest camera, fetches its presets, renders the carousel |
-| `carousel`                                   | `{ index, slides }` — current carousel state                        |
-| `lightbox`                                   | `{ index }` — current lightbox state                                |
-| `carouselGoTo(i)`                            | Navigate the carousel to slide `i`                                  |
-| `lightboxGoTo(i)`                            | Navigate the lightbox to slide `i`                                  |
-| `openLightbox(i)`                            | Open the lightbox at slide `i`                                      |
-| `closeLightbox()`                            | Close the lightbox                                                  |
+| Export                                       | Description                                                                        |
+| -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `initCamera(state, dom, labels, setVisible)` | One-time setup; stores injected deps                                               |
+| `showCameraForStation(stationId)`            | Finds the nearest camera to the station, fetches its presets, renders the carousel |
+| `carousel`                                   | `{ index, slides }` — current carousel state                                       |
+| `lightbox`                                   | `{ index }` — current lightbox state                                               |
+| `carouselGoTo(i)`                            | Navigate the carousel to slide `i`                                                 |
+| `lightboxGoTo(i)`                            | Navigate the lightbox to slide `i`                                                 |
+| `openLightbox(i)`                            | Open the lightbox at slide `i`                                                     |
+| `closeLightbox()`                            | Close the lightbox                                                                 |
 
 ### 9.2 Camera carousel
 
@@ -541,6 +569,7 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 ## 11. Testing Surfaces
 
 - **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, FMI symbol mapping, JSON/XML parsing, per-station caching logic (`next_update_at`, cache hit/miss, `_next_update_at` not leaked), and all view endpoints. Run: `python manage.py test weather`.
+- **Playwright browser tests** — [tests/e2e/test_ui.py](../tests/e2e/test_ui.py). Four headless Chromium tests; external API calls mocked via `page.route()`. Covers: page load + station list populates; station selection renders weather; language switch updates all labels; language persists across reload. Run: `pytest tests/e2e/` (requires `pip install -r requirements-dev.txt` and `playwright install chromium`).
 - **Live smoke test** — [scripts/smoke_test.py](../scripts/smoke_test.py). Hits real Digitraffic and FMI open data endpoints (no API key needed).
 
 ---
@@ -549,7 +578,7 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 
 - **Sessions**: Django signed-cookie backend. No server-side session store needed; rotating `SECRET_KEY` invalidates all stored settings.
 - **Forecast**: FMI open data WFS API is used for both the current weather symbol and the forecast carousel. No API key is required; the forecast is always available. Two requests are made per station fetch: one 3-hourly request for today and one daily request for the following 8 days. FMI WFS returns XML (GML), parsed with `xml.etree.ElementTree` (stdlib). Failures degrade gracefully to empty `current_symbol` and `forecast`.
-- **Rate limiting**: `_is_rate_limited(ip)` in `views.py` implements a sliding-window counter stored in `LocMemCache`. The limit is configurable via the `WEATHER_RATE_LIMIT` env var (default `15/m`). Exceeding the limit returns HTTP 429. Because the counter lives in `LocMemCache`, it resets on process restart and is not shared across workers.
-- **Cache backend**: Default is in-process `LocMemCache`. Two cache namespaces are used: `weather_station_list` (station catalogue, TTL ≈ 5 min) and `station_data:{id}` (per-station observation response, TTL = `next_update_at - now + 30 s`). Swap to Redis/Memcached if running multiple workers and you want a shared station list, rate-limit store, and observation cache.
+- **Rate limiting**: `_is_rate_limited(ip)` in `views.py` implements a sliding-window counter stored in the Django cache. The limit is configurable via the `WEATHER_RATE_LIMIT` env var (default `15/m`). Exceeding the limit returns HTTP 429. When using `LocMemCache` (the dev default), counters reset on process restart and are not shared across workers; with Redis, counters are shared across all workers.
+- **Cache backend**: `django_redis.cache.RedisCache` when `WVD_REDIS_URL` is set; `LocMemCache` otherwise (no Redis required for local development). Two cache namespaces: `weather_station_list` (station catalogue, TTL ≈ 5 min) and `station_data:{id}:{lang}` (per-station observation response, TTL = `next_update_at - now + 30 s`). Redis is required when running multiple Gunicorn workers (`--workers > 1`).
 - **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py](../weather/services/weather_service.py)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as HTTP 502 with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner; no automatic retry is scheduled — the user must click **Päivitä nyt** to retry.
 - **i18n**: Language is a string flag (`fi`/`sv`/`en`) passed through to `WeatherStation.to_dict`, which calls `wind_direction_as_text` and `present_weather_localized` for server-side translation. Present weather labels and Digitraffic SADE sensor condition strings are translated via a lookup table in `WeatherStation`. No Django `gettext` machinery is involved.
