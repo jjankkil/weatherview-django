@@ -77,6 +77,11 @@ const LABELS = {
     mruAll: 'All stations',
     save: 'Save',
     cancel: 'Cancel',
+    stationSearch: 'Search weather station',
+    stationSearchPlaceholder: 'Type station name…',
+    stationNoResults: 'No results',
+    serviceError: 'Weather data service unavailable (error {code}). Retrying soon.',
+    networkError: 'Network error. Check your connection.',
   },
   sv: {
     appTitle: 'Vägväder',
@@ -114,11 +119,6 @@ const LABELS = {
     stationNoResults: 'Inga resultat',
     serviceError: 'Väderdatatjänsten svarar inte (fel {code}). Försöker igen snart.',
     networkError: 'Nätverksfel. Kontrollera din anslutning.',
-    stationSearch: 'Search weather station',
-    stationSearchPlaceholder: 'Type station name…',
-    stationNoResults: 'No results',
-    serviceError: 'Weather data service unavailable (error {code}). Retrying soon.',
-    networkError: 'Network error. Check your connection.',
   },
 };
 

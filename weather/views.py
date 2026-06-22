@@ -25,7 +25,7 @@ from .services.station_info import WeatherStationList
 from .services.weather_service import WeatherService
 
 _STATION_CACHE_KEY = 'weather_station_list'  #!< Cache key for the FMI station list
-_STATION_DATA_KEY = 'station_data:{}'  #!< Per-station cache key template; formatted with station_id
+_STATION_DATA_KEY = 'station_data:{}:{}'  #!< Per-station cache key template; formatted with station_id and lang
 
 def _parse_rate(rate: str) -> tuple[int, int]:
     """Parse a rate string like '15/m' into (count, window_seconds)."""
@@ -192,7 +192,7 @@ def api_station_data(request, station_id: int):
 
     station_list = _get_station_list()
 
-    cache_key = _STATION_DATA_KEY.format(station_id)
+    cache_key = _STATION_DATA_KEY.format(station_id, lang)
     want_fresh = request.GET.get('refresh') == '1'
     cached = cache.get(cache_key)
     if cached is not None and not want_fresh:

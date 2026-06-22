@@ -672,6 +672,38 @@ class StationDataCacheTests(SimpleTestCase):
         self.assertEqual(r.status_code, 200)
         self.assertNotIn("_next_update_at", r.json())
 
+    @patch("weather.services.weather_service.requests.get")
+    def test_different_language_gets_own_cache_entry(self, mock_get):
+        """@brief Switching language triggers a fresh fetch; cache keys are language-scoped."""
+        # First request in Finnish (default) — populates station_data:12345:fi
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_hourly(),
+            _mock_fmi_daily(),
+        ]
+        self._get("/api/station/12345/")
+        fi_call_count = mock_get.call_count  # 4
+
+        # Second request in English — different cache key, must hit the network again
+        mock_get.side_effect = [
+            _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_hourly(),
+            _mock_fmi_daily(),
+        ]
+        with patch("weather.views._get_settings", return_value={"language": "en"}):
+            r = self._get("/api/station/12345/")
+        self.assertEqual(r.status_code, 200)
+        # 3 additional calls for English (station list already cached, data+2xFMI re-fetched)
+        self.assertEqual(mock_get.call_count, fi_call_count + 3)
+
+        # Third request, still English — must be served from cache (no extra calls)
+        mock_get.side_effect = []
+        with patch("weather.views._get_settings", return_value={"language": "en"}):
+            r2 = self._get("/api/station/12345/")
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(mock_get.call_count, fi_call_count + 3)
+
 
 class WeatherServiceErrorTests(SimpleTestCase):
     """@brief Unit tests for WeatherService._get() error message formatting."""
