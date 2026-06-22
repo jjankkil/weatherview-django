@@ -1,9 +1,14 @@
 """Weather service module for fetching and processing weather data.
 
-This module provides the WeatherService class which handles retrieving weather station
-information from Digitraffic (Fintraffic) and weather forecast data from the FMI
-(Finnish Meteorological Institute) open data WFS API. It aggregates data from multiple
-sources to provide comprehensive weather information for Finnish weather stations.
+This module provides focused classes for HTTP transport, FMI XML parsing,
+FMI forecast assembly, and top-level orchestration. The public API entry
+point is WeatherService.build_full_weather_response().
+
+Classes:
+    HttpClient         -- Shared HTTP transport with error normalisation.
+    FmiXmlParser       -- Stateless FMI WFS XML parser.
+    FmiForecastService -- FMI forecast assembly (hourly + daily).
+    WeatherService     -- Top-level orchestrator; public API.
 
 @author Jari Jankkila
 @date 2026
@@ -11,6 +16,7 @@ sources to provide comprehensive weather information for Finnish weather station
 """
 
 import datetime
+import logging
 import xml.etree.ElementTree as ET
 
 import requests
@@ -21,128 +27,107 @@ from .fmi_symbols import get_fmi_weather_symbol
 from .station_info import WeatherStationList
 from .weather_station import WeatherStation
 
+logger = logging.getLogger(__name__)
 
-class WeatherService:
-    """Service class for weather data retrieval and processing.
 
-    Handles HTTP requests to weather data providers (Digitraffic and FMI WFS) with
-    error handling, and aggregates the responses into a unified weather information
-    structure. Maintains error state across requests for diagnostic purposes.
+class HttpClient:
+    """Shared HTTP transport layer with error normalisation.
+
+    Maintains error state (_error, _status) after each request so callers can
+    inspect has_error / error_message without catching exceptions themselves.
 
     @details
-    - Manages HTTP requests to Digitraffic station list and observation endpoints
-    - Fetches 3-hourly (today) and daily (future days) forecast data from FMI WFS
-    - Parses FMI WFS XML (GML simple feature format) into structured forecast items
-    - Provides error tracking and reporting for failed requests
-    - Maps FMI WeatherSymbol3 codes to UI emoji symbols
+    - JSON GET via _get(url, key)
+    - Plain-text GET via _get_xml(url)
+    - On HTTP 5xx: error "Upstream service error (HTTP <n>)"
+    - On HTTP 4xx: error "Upstream request failed (HTTP <n>)"
+    - On network failure: error = str(exc), status = 0
     """
-    def __init__(self):
-        """Initialize a new WeatherService instance.
 
-        Sets up initial error state with no errors and a successful HTTP status code.
-        """
-        self._error = ""
-        self._status = 200
+    def __init__(self) -> None:
+        self._error: str = ""
+        self._status: int = 200
 
     @property
     def has_error(self) -> bool:
-        """Check if an error occurred during the last request.
-
-        @return True if the last request failed (non-200 status code or exception), False otherwise.
-        """
+        """@return True if the last request failed."""
         return self._status != 200 or bool(self._error)
 
     @property
     def error_message(self) -> str:
-        """Get the error message from the last failed request.
-
-        @return The exception message if a request failed, empty string otherwise.
-        """
+        """@return Human-readable error string from the last failed request."""
         return self._error
 
+    def _normalise_error(self, exc: RequestException) -> None:
+        resp = getattr(exc, "response", None)
+        self._status = getattr(resp, "status_code", 0) or 0
+        if self._status >= 500:
+            self._error = f"Upstream service error (HTTP {self._status})"
+        elif self._status >= 400:
+            self._error = f"Upstream request failed (HTTP {self._status})"
+        else:
+            self._error = str(exc)
+
     def _get(self, url: str, key: str = "") -> dict | list:
-        """Perform an HTTP GET request with error handling and JSON parsing.
+        """HTTP GET → parsed JSON.
 
-        Internal method for making outbound HTTP requests. Catches RequestException
-        and normalizes the error message by HTTP status range before storing it,
-        so callers always receive a clean, user-displayable string rather than a
-        raw exception with embedded URLs.
-
-        @param url The URL endpoint to request from.
-        @param key Optional JSON key to extract from response. If provided, returns the value
-                   at response[key]. If not provided, returns the entire response.
-        @return Dictionary or list from the JSON response, or empty dict on error.
-        @details
-        - Sets HTTP timeout to 10 seconds
-        - On HTTP 5xx: sets _error to "Upstream service error (HTTP <status>)"
-        - On HTTP 4xx: sets _error to "Upstream request failed (HTTP <status>)"
-        - On network-level failure (no HTTP response): sets _error to str(exc), _status to 0
-        - Filters response by key if provided (returns empty dict if key not found)
+        @param url  Endpoint URL.
+        @param key  If given, return response[key] instead of the full object.
+        @return dict or list on success; empty dict on error.
         """
         self._error = ""
         self._status = 200
         try:
             display_url = url.split("appid=")[0].rstrip("&?") + "..." if "appid=" in url else url
-            print(f"[{datetime.datetime.now().strftime('%d/%b/%Y %H:%M:%S')}] GET {display_url}")
+            logger.debug("GET %s", display_url)
             r = requests.get(url, timeout=10)
             r.raise_for_status()
             data = r.json()
             return data.get(key, {}) if key else data
         except RequestException as exc:
-            resp = getattr(exc, "response", None)
-            self._status = getattr(resp, "status_code", 0) or 0
-            if self._status >= 500:
-                self._error = f"Upstream service error (HTTP {self._status})"
-            elif self._status >= 400:
-                self._error = f"Upstream request failed (HTTP {self._status})"
-            else:
-                self._error = str(exc)
+            self._normalise_error(exc)
             return {}
 
     def _get_xml(self, url: str) -> str:
-        """Perform an HTTP GET request and return the response body as text.
+        """HTTP GET → response text (for XML endpoints).
 
-        Used for XML-returning endpoints (FMI WFS). Applies the same error
-        handling and logging as @ref _get but returns raw text instead of
-        parsed JSON.
-
-        @param url The URL endpoint to request from.
-        @return Response body as a UTF-8 string, or empty string on error.
+        @param url  Endpoint URL.
+        @return Response body as a string; empty string on error.
         """
         self._error = ""
         self._status = 200
         try:
-            print(f"[{datetime.datetime.now().strftime('%d/%b/%Y %H:%M:%S')}] GET {url}")
+            logger.debug("GET %s", url)
             r = requests.get(url, timeout=10)
             r.raise_for_status()
             return r.text
         except RequestException as exc:
-            resp = getattr(exc, "response", None)
-            self._status = getattr(resp, "status_code", 0) or 0
-            if self._status >= 500:
-                self._error = f"Upstream service error (HTTP {self._status})"
-            elif self._status >= 400:
-                self._error = f"Upstream request failed (HTTP {self._status})"
-            else:
-                self._error = str(exc)
+            self._normalise_error(exc)
             return ""
 
-    def _parse_fmi_xml(self, xml_text: str) -> dict[str, dict]:
-        """Parse FMI WFS simple-feature XML into a timestamp-keyed parameter dict.
 
-        Iterates over all `BsWfsElement` nodes in the XML, collecting the
-        `ParameterName`/`ParameterValue` pairs keyed by their `Time` string.
+class FmiXmlParser:
+    """Stateless parser for FMI WFS BsWfs simple-feature XML.
 
-        @param xml_text Raw XML string from a FMI WFS getFeature response.
-        @return dict mapping ISO 8601 timestamp strings to inner dicts of
-                {parameter_name: value_string}, e.g.
-                {"2026-06-23T12:00:00Z": {"Temperature": "15.5", "WeatherSymbol3": "1"}}.
+    @details
+    Iterates over BsWfsElement nodes and returns a dict keyed by ISO 8601
+    timestamp, where each value is a dict of {ParameterName: ParameterValue}.
+    """
+
+    _NS = "http://xml.fmi.fi/schema/wfs/2.0"
+
+    @classmethod
+    def parse(cls, xml_text: str) -> dict[str, dict]:
+        """Parse FMI WFS XML into a timestamp-keyed parameter dict.
+
+        @param xml_text  Raw XML string from a FMI WFS getFeature response.
+        @return dict mapping ISO 8601 timestamps to {param_name: value_str}.
                 Returns empty dict if xml_text is empty or unparseable.
         """
         if not xml_text:
             return {}
         try:
-            ns = "http://xml.fmi.fi/schema/wfs/2.0"
+            ns = cls._NS
             root = ET.fromstring(xml_text)
             result: dict[str, dict] = {}
             for el in root.iter(f"{{{ns}}}BsWfsElement"):
@@ -160,25 +145,36 @@ class WeatherService:
         except ET.ParseError:
             return {}
 
-    def _get_fmi_forecast(self, coordinates) -> tuple[list[dict], str]:
-        """Fetch and parse the FMI WFS forecast for the given coordinates.
 
-        Makes two requests to the FMI open data WFS:
-        - A 3-hourly (timestep=180 min) request covering today (UTC).
-        - A daily (timestep=1440 min) request covering tomorrow through
-          today + 8 days, anchored at noon UTC for representative values.
+class FmiForecastService:
+    """Assembles FMI WFS hourly + daily forecast data for a given location.
 
-        @param coordinates Coordinate object with latitude and longitude attributes.
-        @return Tuple (forecast_list, current_symbol) where forecast_list contains
-                today's 3-hourly items followed by future daily items, and
-                current_symbol is the emoji from the first hourly entry (empty
-                string on error or if no hourly data is available).
+    Delegates HTTP transport to an HttpClient instance and XML parsing to
+    FmiXmlParser so each concern is independently testable.
+
+    @param http_client  HttpClient used for outbound requests.
+    """
+
+    def __init__(self, http_client: HttpClient) -> None:
+        self._http = http_client
+        self._parser = FmiXmlParser()
+
+    def get_forecast(self, coordinates) -> tuple[list[dict], str]:
+        """Fetch and assemble FMI WFS hourly + daily forecast.
+
+        Makes two WFS requests:
+        - 3-hourly (timestep=180 min) covering today (UTC).
+        - Daily (timestep=1440 min) covering tomorrow through today + 8 days.
+
+        @param coordinates  Object with .latitude and .longitude attributes.
+        @return Tuple (forecast_list, current_symbol).
+                forecast_list: today's 3-hourly items then future daily items.
+                current_symbol: emoji for the most recently started 3-h slot
+                                (empty string if no hourly data).
         @details
-        - Today's 3-hourly items: {time (HH:MM), date (YYYY-MM-DD),
-          temperature (rounded °C string), symbol}.
-        - Future daily items: same shape plus daily=True, time="".
-        - On any network or parse error, the relevant portion of the forecast
-          is silently empty (graceful degradation).
+        - Hourly items: {time (HH:MM), date (YYYY-MM-DD), temperature, symbol}.
+        - Daily items: same shape plus daily=True and time="".
+        - FMI errors degrade gracefully to empty lists (no exception raised).
         """
         today = datetime.date.today()
         tomorrow = today + datetime.timedelta(days=1)
@@ -197,8 +193,8 @@ class WeatherService:
             f"{end_daily.isoformat()}T12:00:00Z",
         )
 
-        hourly_data = self._parse_fmi_xml(self._get_xml(hourly_url))
-        daily_data = self._parse_fmi_xml(self._get_xml(daily_url))
+        hourly_data = FmiXmlParser.parse(self._http._get_xml(hourly_url))
+        daily_data = FmiXmlParser.parse(self._http._get_xml(daily_url))
 
         forecasts: list[dict] = []
         current_symbol = ""
@@ -215,8 +211,7 @@ class WeatherService:
             slot_start = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
             slot_end = slot_start + datetime.timedelta(hours=3)
 
-            # current_symbol tracks the most recently started slot (current conditions).
-            # Falls back to the first future slot if no past slot exists yet.
+            # current_symbol: use most-recently-started slot; fall back to first future slot.
             if slot_start <= now_utc:
                 current_symbol = symbol
             elif not current_symbol:
@@ -250,14 +245,31 @@ class WeatherService:
 
         return forecasts, current_symbol
 
+
+class WeatherService(HttpClient):
+    """Top-level orchestrator for weather data retrieval.
+
+    Extends HttpClient so that has_error / error_message from Digitraffic
+    requests are directly accessible on the service instance (preserving the
+    existing public API).  Delegates FMI forecast assembly to FmiForecastService.
+
+    Public API (unchanged):
+        get_station_list()
+        get_station_data(station_id)
+        build_full_weather_response(station_id, station_list, lang)
+        has_error
+        error_message
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._forecast_service = FmiForecastService(self)
+
     def get_station_list(self) -> WeatherStationList:
-        """Fetch and parse the list of available weather stations from FMI.
+        """Fetch and parse the Digitraffic weather station list.
 
-        Retrieves the GeoJSON feature collection from FMI's station list endpoint,
-        parses the raw data into WeatherStationList objects, and sorts them alphabetically.
-
-        @return WeatherStationList object containing all available weather stations.
-                Returns an empty list if the request fails or if @ref has_error is True.
+        @return WeatherStationList sorted alphabetically.
+                Empty list if the request fails.
         """
         raw = self._get(Urls.STATION_LIST_URL, "features")
         station_list = WeatherStationList()
@@ -267,14 +279,11 @@ class WeatherService:
         return station_list
 
     def get_station_data(self, station_id: int) -> WeatherStation:
-        """Fetch weather data for a specific station from FMI.
+        """Fetch current observations for a specific Digitraffic station.
 
-        Retrieves current weather observations for the specified station ID and parses
-        the response into a WeatherStation object.
-
-        @param station_id The unique FMI station identifier.
-        @return WeatherStation object containing current weather data for the station.
-                Returns an empty station object if the request fails or if @ref has_error is True.
+        @param station_id  Digitraffic station identifier.
+        @return WeatherStation populated with sensor values.
+                Empty station if the request fails.
         """
         url = Urls.WEATHER_STATION_URL.format(station_id)
         raw = self._get(url)
@@ -289,34 +298,19 @@ class WeatherService:
         station_list: WeatherStationList,
         lang: str = "fi",
     ) -> dict:
-        """Build a comprehensive weather response combining Digitraffic and FMI forecast data.
+        """Build a comprehensive weather response combining Digitraffic and FMI data.
 
-        Aggregates weather data from multiple sources into a single unified response object.
-        Retrieves Digitraffic station observations and unconditionally augments them with
-        FMI WFS forecast data (no API key required).
-
-        @param station_id The Digitraffic station identifier to query.
-        @param station_list WeatherStationList containing station metadata (names, coordinates).
-        @param lang Language code for localized output (default: "fi" for Finnish).
-        @return Dictionary containing aggregated weather data with the following keys:
-                - station_id: The requested station ID
-                - station_name: Formatted station name from station_list
-                - current_symbol: Weather emoji from the first FMI 3-hourly forecast
-                  entry for today (empty string if forecast is unavailable)
-                - forecast: Mixed list of forecast objects. Today's 3-hourly entries
-                  carry time (HH:MM), date (YYYY-MM-DD), temperature (rounded °C
-                  string), and symbol. Future daily entries additionally carry
-                  daily=True and have an empty time string.
-                - _next_update_at: datetime of the next expected Digitraffic observation
-                  (internal; stripped by the view before sending the JSON response)
-                - Additional keys from station_data.to_dict(lang)
-                Returns {"error": <clean message>} if station not found or Digitraffic
-                request fails.
+        @param station_id   Digitraffic station ID to query.
+        @param station_list WeatherStationList with station metadata.
+        @param lang         Language code for localised output (default: "fi").
+        @return dict with weather data keys including station_id, station_name,
+                current_symbol, forecast, _next_update_at, and sensor fields
+                from station_data.to_dict(lang).
+                Returns {"error": <message>} if the station is not found or
+                the Digitraffic request fails.
         @details
-        - Validates station_id exists in station_list before querying Digitraffic
-        - Forecast is always fetched unconditionally from FMI open data (no API key needed)
-        - FMI errors degrade gracefully: current_symbol="" and forecast=[] alongside
-          the Digitraffic observation data
+        - FMI forecast is always fetched; errors degrade gracefully (empty list).
+        - _next_update_at is internal and stripped by the view before sending JSON.
         """
         station_info = station_list.find_by_id(station_id)
         if station_info is None:
@@ -331,7 +325,7 @@ class WeatherService:
         result["station_name"] = station_info.formatted_name
         result["_next_update_at"] = station_data.next_update_at
 
-        forecast, current_symbol = self._get_fmi_forecast(station_info.coordinates)
+        forecast, current_symbol = self._forecast_service.get_forecast(station_info.coordinates)
         result["current_symbol"] = current_symbol
         result["forecast"] = forecast
 

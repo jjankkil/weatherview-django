@@ -174,7 +174,7 @@ def api_station_data(request, station_id: int):
     - Display language from session settings (default: Finnish)
     - Returns HTTP 502 (Bad Gateway) if station not found or Digitraffic API fails
     - FMI WFS forecast is always fetched; failures degrade gracefully to empty forecast
-    - Per-station response cache (key: 'station_data:{id}'): on a cache hit the cached
+    - Per-station response cache (key: 'station_data:{id}:{lang}'): on a cache hit the cached
       response is served immediately unless the request carries ?refresh=1 (sent by the
       frontend countdown timer when new data is due). On a miss or ?refresh=1, fresh data
       is fetched from Digitraffic and FMI and cached with a TTL derived from next_update_at

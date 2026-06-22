@@ -100,8 +100,17 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"  ##< Default primary key ty
 LOGGING = {  ##< Logging configuration: WARNING+ to stderr console.
     "version": 1,
     "disable_existing_loggers": False,
+    "formatters": {
+        "default": {
+            "format": "[%(asctime)s] %(levelname)s %(name)s %(message)s",
+            "datefmt": "%d.%b.%Y %H:%M:%S",
+        },
+    },
     "handlers": {
-        "console": {"class": "logging.StreamHandler"},
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "default",
+        },
     },
     "root": {"handlers": ["console"], "level": "WARNING"},
 }
