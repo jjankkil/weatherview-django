@@ -6,19 +6,18 @@
 set -e
 
 # Activate virtual environment if it exists
-if [ -f "venv/bin/activate" ]; then
+if [ -f ".venv/bin/activate" ]; then
     echo "Activating virtual environment..."
-    source venv/bin/activate
+    source .venv/bin/activate
 else
-    echo "Warning: Virtual environment not found at venv/bin/activate"
-    echo "Please create one with: python -m venv venv"
+    echo "Warning: Virtual environment not found at .venv/bin/activate"
+    echo "Please create one with: python -m venv .venv"
 fi
 
 # Generate a random SECRET_KEY for debug if not set
 if [ -z "$WVD_SECRET_KEY" ]; then
     echo "Generating temporary SECRET_KEY for debug..."
     export WVD_SECRET_KEY=$(python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')
-    echo "Generated temporary SECRET_KEY for debug: $WVD_SECRET_KEY"
 fi
 
 # Set debug mode

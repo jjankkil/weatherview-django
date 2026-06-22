@@ -362,11 +362,16 @@ async function fetchSettings() {
   } catch (_) { /* ignore */ }
 }
 
+function getCsrfToken() {
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  return meta ? meta.content : '';
+}
+
 async function saveSettings(patch) {
   try {
     await fetch('/api/settings/save/', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
       body: JSON.stringify(patch),
     });
   } catch (_) { /* ignore */ }

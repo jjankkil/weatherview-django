@@ -18,7 +18,6 @@ from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils import timezone as dj_tz
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .services.station_info import WeatherStationList
@@ -284,27 +283,67 @@ def api_nearest_station(request):
     return JsonResponse(nearest)
 
 
-@csrf_exempt
+_VALID_LANGUAGES = {"fi", "sv", "en"}  #!< Accepted language codes for the language setting
+_MAX_STATION_NAME_LEN = 200  #!< Maximum allowed length for current_station_name
+
+
+def _validate_settings_body(body: dict) -> tuple[dict, str | None]:
+    """Validate and sanitize settings from the request body.
+
+    @param body Parsed JSON body from the settings save request.
+    @return Tuple (cleaned_dict, error_message). cleaned_dict contains only the
+            keys that were present, validated, and type-correct; error_message is
+            None on success or a plain-text description of the first validation failure.
+    """
+    cleaned: dict = {}
+    if "language" in body:
+        val = body["language"]
+        if val not in _VALID_LANGUAGES:
+            return {}, f"Invalid language: {val!r}"
+        cleaned["language"] = val
+    if "show_camera" in body:
+        val = body["show_camera"]
+        if not isinstance(val, bool):
+            return {}, "show_camera must be a boolean"
+        cleaned["show_camera"] = val
+    if "follow_location" in body:
+        val = body["follow_location"]
+        if not isinstance(val, bool):
+            return {}, "follow_location must be a boolean"
+        cleaned["follow_location"] = val
+    if "current_station_id" in body:
+        val = body["current_station_id"]
+        if val is not None and (isinstance(val, bool) or not isinstance(val, int) or val <= 0):
+            return {}, "current_station_id must be a positive integer or null"
+        cleaned["current_station_id"] = val
+    if "current_station_name" in body:
+        val = body["current_station_name"]
+        if not isinstance(val, str) or len(val) > _MAX_STATION_NAME_LEN:
+            return {}, "current_station_name must be a string \u2264 200 characters"
+        cleaned["current_station_name"] = val
+    return cleaned, None
+
+
 @require_http_methods(["POST"])
 def api_settings_save(request):
     """Save or update user settings.
 
     HTTP POST endpoint that persists user preferences to the session. Only whitelisted
-    settings keys are accepted; other keys in the request are silently ignored.
-    CSRF protection is disabled for this endpoint to allow frontend SPA requests.
+    settings keys are accepted and type-checked; other keys are silently ignored.
 
     @param request Django request object with JSON body containing settings to update.
     @return JsonResponse:
             - On success (200): {"ok": True}
-            - On JSON parse error (400): {"error": "Invalid JSON"}
+            - On parse or validation error (400): {"error": "..."}
     @details
     - HTTP method: POST only
     - Request body: JSON object with setting keys and values
-    - CSRF exempt: decorated with @csrf_exempt for SPA/AJAX requests
+    - CSRF protection: requires X-CSRFToken request header (token served via
+      <meta name="csrf-token"> in the page)
     - Allowed keys (whitelist): current_station_id, current_station_name,
       language, show_camera, follow_location
     - Partial updates: only provided keys are updated; others retain current values
-    - Invalid JSON returns HTTP 400 Bad Request
+    - Values are type-checked; invalid types or values return HTTP 400
     - All updates persisted to request.session for the current user
     @details Example request body:
     @code
@@ -321,10 +360,14 @@ def api_settings_save(request):
     except (json.JSONDecodeError, UnicodeDecodeError):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "Request body must be a JSON object"}, status=400)
+
+    cleaned, error = _validate_settings_body(body)
+    if error:
+        return JsonResponse({"error": error}, status=400)
+
     settings = _get_settings(request)
-    allowed = {"current_station_id", "current_station_name", "language", "show_camera", "follow_location"}
-    for key in allowed:
-        if key in body:
-            settings[key] = body[key]
+    settings.update(cleaned)
     _save_settings(request, settings)
     return JsonResponse({"ok": True})

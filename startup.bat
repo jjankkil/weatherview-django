@@ -5,19 +5,18 @@ REM Sets default environment variables for local development
 setlocal enabledelayedexpansion
 
 REM Activate virtual environment if it exists
-if exist "venv\Scripts\activate.bat" (
+if exist ".venv\Scripts\activate.bat" (
     echo Activating virtual environment...
-    call venv\Scripts\activate.bat
+    call .venv\Scripts\activate.bat
 ) else (
-    echo Warning: Virtual environment not found at venv\Scripts\activate.bat
-    echo Please create one with: python -m venv venv
+    echo Warning: Virtual environment not found at .venv\Scripts\activate.bat
+    echo Please create one with: python -m venv .venv
 )
 
 REM Generate a random SECRET_KEY for debug if not set
 if not defined WVD_SECRET_KEY (
     echo Generating temporary SECRET_KEY for debug...
     for /f "tokens=*" %%i in ('python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"') do set WVD_SECRET_KEY=%%i
-    echo Generated temporary SECRET_KEY for debug: !WVD_SECRET_KEY!
 )
 
 REM Set debug mode

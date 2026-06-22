@@ -26,7 +26,7 @@ SECRET_KEY = os.environ["WVD_SECRET_KEY"]  ##< Django cryptographic secret key. 
 
 DEBUG = os.getenv("WVD_DEBUG", "False") == "True"  ##< Enable Django debug mode. Set WVD_DEBUG=True to activate.
 
-ALLOWED_HOSTS = os.getenv("WVD_ALLOWED_HOSTS", "*,localhost,127.0.0.1").split(",")  ##< Comma-separated list of allowed hostnames. Set via WVD_ALLOWED_HOSTS.
+ALLOWED_HOSTS = os.getenv("WVD_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")  ##< Comma-separated list of allowed hostnames. Set via WVD_ALLOWED_HOSTS.
 
 WEATHER_RATE_LIMIT = os.getenv("WEATHER_RATE_LIMIT", "15/m")  ##< Rate limit for weather API endpoint (per IP). Sliding-window format: "<count>/<unit>" where unit is s/m/h/d.
 

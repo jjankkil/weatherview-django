@@ -14,7 +14,6 @@ if (Test-Path ".venv\Scripts\Activate.ps1") {
 if (-not $env:WVD_SECRET_KEY) {
     Write-Host "Generating temporary SECRET_KEY for debug..."
     $env:WVD_SECRET_KEY = python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-    Write-Host "Generated temporary SECRET_KEY for debug: $($env:WVD_SECRET_KEY)"
 }
 
 # Set debug mode

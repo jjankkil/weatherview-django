@@ -4,10 +4,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="csrf-token" content="{{ csrf_token }}" />
     <title>Tiesää – Road Weather</title>
-    <link rel="icon" type="image/svg+xml" href="{% static 'weather/favicon.svg' %}" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="{% static 'weather/favicon.svg' %}"
+    />
     <link rel="stylesheet" href="{% static 'weather/css/style.css' %}" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.5.0/css/flag-icons.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.5.0/css/flag-icons.min.css"
+    />
   </head>
   <body>
     <div id="app">
@@ -18,16 +26,38 @@
           <h1 id="app-title">Tiesää</h1>
         </div>
         <div class="header-controls">
-          <div id="lang-dropdown" class="lang-dropdown" role="combobox" aria-haspopup="listbox" aria-expanded="false">
-            <button id="lang-btn" class="lang-btn" type="button" aria-label="Select language">
+          <div
+            id="lang-dropdown"
+            class="lang-dropdown"
+            role="combobox"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+          >
+            <button
+              id="lang-btn"
+              class="lang-btn"
+              type="button"
+              aria-label="Select language"
+            >
               <span class="fi fi-fi"></span>
               <span class="lang-btn-label">Suomi</span>
               <span class="lang-btn-arrow">▾</span>
             </button>
-            <ul id="lang-list" class="lang-list" role="listbox" aria-label="Language">
-              <li class="lang-option" data-value="fi" role="option"><span class="fi fi-fi"></span> Suomi</li>
-              <li class="lang-option" data-value="sv" role="option"><span class="fi fi-se"></span> Svenska</li>
-              <li class="lang-option" data-value="en" role="option"><span class="fi fi-gb"></span> English</li>
+            <ul
+              id="lang-list"
+              class="lang-list"
+              role="listbox"
+              aria-label="Language"
+            >
+              <li class="lang-option" data-value="fi" role="option">
+                <span class="fi fi-fi"></span> Suomi
+              </li>
+              <li class="lang-option" data-value="sv" role="option">
+                <span class="fi fi-se"></span> Svenska
+              </li>
+              <li class="lang-option" data-value="en" role="option">
+                <span class="fi fi-gb"></span> English
+              </li>
             </ul>
           </div>
           <button id="settings-btn" class="btn-icon" title="Settings">
@@ -130,7 +160,9 @@
             </div>
 
             <div class="data-row" id="road-temp-row">
-              <span id="road-temp-label" class="field-label">Tien pintalämpötila:</span>
+              <span id="road-temp-label" class="field-label"
+                >Tien pintalämpötila:</span
+              >
               <span id="road-temp-value" class="field-value"></span>
             </div>
 
@@ -176,9 +208,23 @@
           <div id="forecast-section" class="forecast-section hidden">
             <h2 id="forecast-title" class="forecast-title">Ennuste</h2>
             <div class="forecast-carousel">
-              <button id="forecast-prev" class="forecast-nav-btn" aria-label="Previous" disabled>&#8249;</button>
+              <button
+                id="forecast-prev"
+                class="forecast-nav-btn"
+                aria-label="Previous"
+                disabled
+              >
+                &#8249;
+              </button>
               <div id="forecast-items" class="forecast-items"></div>
-              <button id="forecast-next" class="forecast-nav-btn" aria-label="Next" disabled>&#8250;</button>
+              <button
+                id="forecast-next"
+                class="forecast-nav-btn"
+                aria-label="Next"
+                disabled
+              >
+                &#8250;
+              </button>
             </div>
           </div>
         </main>
@@ -276,12 +322,16 @@
         </div>
         <div class="modal-body">
           <div class="camera-setting">
-            <label id="camera-label" for="camera-toggle">Näytä kelikameroiden kuvat:</label>
+            <label id="camera-label" for="camera-toggle"
+              >Näytä kelikameroiden kuvat:</label
+            >
             <input id="camera-toggle" type="checkbox" checked />
           </div>
 
           <div class="follow-location-setting">
-            <label id="follow-location-label" for="follow-location-toggle">Käytä sijaintiasi aseman valintaan:</label>
+            <label id="follow-location-label" for="follow-location-toggle"
+              >Käytä sijaintiasi aseman valintaan:</label
+            >
             <input id="follow-location-toggle" type="checkbox" />
           </div>
         </div>
