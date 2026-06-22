@@ -12,7 +12,6 @@
 #  | WVD_ALLOWED_HOSTS | `*,localhost,127.0.0.1` | Comma-separated allowed host list |
 #  | WVD_SESSION_COOKIE_AGE | `1209600` (14 days) | Session lifetime in seconds |
 #  | WVD_SECURE_HSTS_SECONDS | `31536000` (prod) / `0` (debug) | HSTS max-age |
-#  | OPENWEATHER_API_KEY | *(required)* | OpenWeatherMap API key for weather symbols and forecast |
 #  | WEATHER_RATE_LIMIT | `15/m` | Rate limit for weather API endpoint (per IP), e.g. "15/m" |
 #
 #  @author Jari Jankkila
@@ -29,7 +28,6 @@ DEBUG = os.getenv("WVD_DEBUG", "False") == "True"  ##< Enable Django debug mode.
 
 ALLOWED_HOSTS = os.getenv("WVD_ALLOWED_HOSTS", "*,localhost,127.0.0.1").split(",")  ##< Comma-separated list of allowed hostnames. Set via WVD_ALLOWED_HOSTS.
 
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")  ##< OpenWeatherMap API key. Set via OPENWEATHER_API_KEY env var.
 WEATHER_RATE_LIMIT = os.getenv("WEATHER_RATE_LIMIT", "15/m")  ##< Rate limit for weather API endpoint (per IP). Sliding-window format: "<count>/<unit>" where unit is s/m/h/d.
 
 INSTALLED_APPS = [  ##< Django applications enabled for this project.

@@ -1,13 +1,12 @@
-"""Live smoke test — hits Digitraffic and OpenWeatherMap.
+"""Live smoke test — hits Digitraffic and FMI open data WFS.
 
 Run from the repository root:
 
-    python scripts/smoke_test.py [station_id] [--api-key KEY]
+    python scripts/smoke_test.py [station_id]
 
 Adapted from the original `pyweatherview/scripts/smoke_test.py` to use the
-Django port's `WeatherService`. Set an OpenWeatherMap API key via the
-environment variable `OWM_API_KEY` (or `--api-key`) to exercise the
-forecast/symbol path.
+Django port's `WeatherService`. No API key is required: forecast data is
+fetched unconditionally from FMI open data.
 """
 
 import argparse
@@ -27,20 +26,17 @@ import django  # noqa: E402
 django.setup()
 
 from weather.services.weather_service import WeatherService  # noqa: E402
-from weather.services.ui_helpers import get_station_city  # noqa: E402
 
 
-def run_checks(station_id: int | None, api_key: str) -> int:
-    """@brief Execute live smoke tests against Digitraffic and OpenWeatherMap.
+def run_checks(station_id: int | None) -> int:
+    """@brief Execute live smoke tests against Digitraffic and FMI open data.
 
     Fetches the station list, queries observation data for *station_id* (or the
-    first alphabetical station if `None`), and — when *api_key* is provided —
-    also exercises the OpenWeatherMap city-weather and forecast paths.
+    first alphabetical station if `None`), then fetches the FMI WFS forecast
+    via `build_full_weather_response`.
 
     @param station_id  Digitraffic station id to query, or `None` to use the
                        first station returned by the API.
-    @param api_key     OpenWeatherMap API key.  Pass an empty string to skip
-                       the forecast/symbol checks.
     @return 0 on success, 1 on any error.
     """
     print("== weatherview-django smoke test ==")
@@ -79,27 +75,8 @@ def run_checks(station_id: int | None, api_key: str) -> int:
     print(f"  wind         = {station_data.wind_speed} m/s")
     print(f"  visibility   = {station_data.visibility_str}")
 
-    if not api_key:
-        print("(no OpenWeatherMap key — skipping symbol & forecast)")
-        print("OK")
-        return 0
-
-    print("Fetching OpenWeatherMap city + forecast…")
-    city = get_station_city(info.formatted_name)
-    city_data = service.get_city_weather(city, info.coordinates, api_key)
-    if isinstance(city_data, dict) and "weather" in city_data:
-        print(f"  current weather id = {city_data['weather'][0]['id']}")
-    else:
-        print(f"  city_data error: {service.error_message or 'no weather key'}")
-
-    forecast = service.get_forecast(info.coordinates, api_key)
-    if isinstance(forecast, dict) and "list" in forecast:
-        print(f"  forecast slots returned = {len(forecast['list'])}")
-    else:
-        print(f"  forecast error: {service.error_message or 'no list key'}")
-
-    print("Fetching full bundled response (build_full_weather_response)…")
-    bundle = service.build_full_weather_response(target_id, station_list, api_key, "fi")
+    print("Fetching full bundled response (Digitraffic + FMI WFS forecast)…")
+    bundle = service.build_full_weather_response(target_id, station_list, "fi")
     if "error" in bundle:
         print(f"  ERROR: {bundle['error']}")
         return 1
@@ -124,13 +101,8 @@ def main() -> int:
         default=None,
         help="Specific station id to query (default: first in list)",
     )
-    parser.add_argument(
-        "--api-key",
-        default=os.environ.get("OWM_API_KEY", ""),
-        help="OpenWeatherMap API key (or set $OWM_API_KEY)",
-    )
     args = parser.parse_args()
-    return run_checks(args.station_id, args.api_key)
+    return run_checks(args.station_id)
 
 
 if __name__ == "__main__":

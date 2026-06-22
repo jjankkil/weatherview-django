@@ -18,29 +18,88 @@ Run with:
     python manage.py test weather
 
 These tests mock outbound HTTP so they run offline. The live counterpart
-that actually hits Digitraffic + OpenWeatherMap is in
+that actually hits Digitraffic and the FMI open data WFS is in
 `scripts/smoke_test.py`.
 """
 
 import datetime
 from datetime import timezone as dt_timezone
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests as requests_lib
-from django.test import SimpleTestCase, Client, override_settings
 from django.core.cache import cache
+from django.test import Client, SimpleTestCase, override_settings
 
+from weather.services.fmi_symbols import get_fmi_weather_symbol
 from weather.services.helpers import ok_to_add_station
-from weather.services.weather_service import WeatherService
 from weather.services.physics import fmi_feels_like_temperature
-from weather.services.ui_helpers import (
-    get_weather_symbol,
-    wind_direction_as_text,
-    format_station_name,
-    get_station_city,
-)
 from weather.services.station_info import WeatherStationList
+from weather.services.ui_helpers import (format_station_name,
+                                         wind_direction_as_text)
+from weather.services.weather_service import WeatherService
 from weather.services.weather_station import WeatherStation
+
+# ── FMI WFS XML fixtures ────────────────────────────────────
+_FMI_HOURLY_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"
+                       xmlns:BsWfs="http://xml.fmi.fi/schema/wfs/2.0">
+  <wfs:member>
+    <BsWfs:BsWfsElement>
+      <BsWfs:Time>2099-12-31T21:00:00Z</BsWfs:Time>
+      <BsWfs:ParameterName>Temperature</BsWfs:ParameterName>
+      <BsWfs:ParameterValue>15.5</BsWfs:ParameterValue>
+    </BsWfs:BsWfsElement>
+  </wfs:member>
+  <wfs:member>
+    <BsWfs:BsWfsElement>
+      <BsWfs:Time>2099-12-31T21:00:00Z</BsWfs:Time>
+      <BsWfs:ParameterName>WeatherSymbol3</BsWfs:ParameterName>
+      <BsWfs:ParameterValue>1</BsWfs:ParameterValue>
+    </BsWfs:BsWfsElement>
+  </wfs:member>
+</wfs:FeatureCollection>"""
+
+_FMI_DAILY_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"
+                       xmlns:BsWfs="http://xml.fmi.fi/schema/wfs/2.0">
+  <wfs:member>
+    <BsWfs:BsWfsElement>
+      <BsWfs:Time>2100-01-01T12:00:00Z</BsWfs:Time>
+      <BsWfs:ParameterName>Temperature</BsWfs:ParameterName>
+      <BsWfs:ParameterValue>18.2</BsWfs:ParameterValue>
+    </BsWfs:BsWfsElement>
+  </wfs:member>
+  <wfs:member>
+    <BsWfs:BsWfsElement>
+      <BsWfs:Time>2100-01-01T12:00:00Z</BsWfs:Time>
+      <BsWfs:ParameterName>WeatherSymbol3</BsWfs:ParameterName>
+      <BsWfs:ParameterValue>2</BsWfs:ParameterValue>
+    </BsWfs:BsWfsElement>
+  </wfs:member>
+</wfs:FeatureCollection>"""
+
+_FMI_EMPTY_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"
+                       xmlns:BsWfs="http://xml.fmi.fi/schema/wfs/2.0">
+</wfs:FeatureCollection>"""
+
+
+def _mock_fmi_hourly():
+    """@brief Mock response carrying FMI hourly forecast XML."""
+    return _mock_response(text=_FMI_HOURLY_XML)
+
+
+def _mock_fmi_daily():
+    """@brief Mock response carrying FMI daily forecast XML."""
+    return _mock_response(text=_FMI_DAILY_XML)
+
+
+def _mock_fmi_empty():
+    """@brief Mock response carrying an empty FMI WFS collection."""
+    return _mock_response(text=_FMI_EMPTY_XML)
 
 
 # ── Sample API payloads ─────────────────────────────────────
@@ -124,16 +183,20 @@ _STATION_DATA_PAYLOAD = {
 }
 
 
-def _mock_response(json_data, status_code=200):
+def _mock_response(json_data=None, status_code=200, text=None):
     """@brief Build a mock requests.Response object.
 
-    @param json_data   Python object returned by `.json()`.
+    @param json_data   Python object returned by `.json()` (optional).
     @param status_code HTTP status code (default 200).
+    @param text        String returned by `.text` (optional, for XML responses).
     @return MagicMock that mimics a `requests.Response`.
     """
     m = MagicMock()
     m.status_code = status_code
-    m.json.return_value = json_data
+    if json_data is not None:
+        m.json.return_value = json_data
+    if text is not None:
+        m.text = text
     m.raise_for_status = MagicMock()
     return m
 
@@ -169,23 +232,24 @@ class HelpersTests(SimpleTestCase):
         )
         self.assertEqual(format_station_name(""), "")
 
-    def test_get_station_city(self):
-        """@brief get_station_city() extracts the city part before the comma."""
-        self.assertEqual(get_station_city("Oulu, Ritaharju vt4"), "Oulu")
-        self.assertEqual(get_station_city("no-comma"), "")
-        self.assertEqual(get_station_city(""), "")
+    def test_fmi_weather_symbol_mapping(self):
+        """@brief get_fmi_weather_symbol() maps FMI WeatherSymbol3 codes to Unicode emojis."""
+        self.assertEqual(get_fmi_weather_symbol(1), "\u2600")    # clear
+        self.assertEqual(get_fmi_weather_symbol(2), "\u26c5")    # partly cloudy
+        self.assertEqual(get_fmi_weather_symbol(3), "\u2601")    # cloudy
+        self.assertEqual(get_fmi_weather_symbol(32), "\U0001f327")  # rain
+        self.assertEqual(get_fmi_weather_symbol(61), "\u26c8")   # thunderstorm
+        self.assertEqual(get_fmi_weather_symbol(52), "\u2744")   # snow
+        self.assertEqual(get_fmi_weather_symbol(91), "\U0001f32b")  # fog
+        self.assertEqual(get_fmi_weather_symbol(99), "")          # unknown code
+        self.assertEqual(get_fmi_weather_symbol("nan"), "")       # unparseable string
+        self.assertEqual(get_fmi_weather_symbol(None), "")        # None
 
     def test_wind_direction_as_text_fi_en(self):
         """@brief wind_direction_as_text() returns correct Finnish and English strings."""
         self.assertEqual(wind_direction_as_text(180, "fi"), "etelästä")
         self.assertEqual(wind_direction_as_text(180, "en"), "from S")
         self.assertEqual(wind_direction_as_text(None), "")
-
-    def test_weather_symbol_mapping(self):
-        """@brief get_weather_symbol() maps OpenWeatherMap condition IDs to Unicode symbols."""
-        self.assertEqual(get_weather_symbol(800), "☀")
-        self.assertEqual(get_weather_symbol(500), "🌧")
-        self.assertEqual(get_weather_symbol(0), "")
 
 
 class PhysicsTests(SimpleTestCase):
@@ -373,12 +437,13 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(data["stations"][0]["formatted_name"], "Oulu, Ritaharju vt4")
 
     @patch("weather.services.weather_service.requests.get")
-    def test_api_station_data_without_api_key(self, mock_get):
-        """@brief Without an OWM key, station data response omits symbol and forecast."""
-        # First call: station list; second call: station data
+    def test_api_station_data_with_fmi_forecast(self, mock_get):
+        """@brief Station data response includes FMI-sourced forecast and current_symbol unconditionally."""
         mock_get.side_effect = [
             _mock_response(_STATION_LIST_PAYLOAD),
             _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_hourly(),
+            _mock_fmi_daily(),
         ]
         r = self._get("/api/station/12345/")
         self.assertEqual(r.status_code, 200)
@@ -386,9 +451,37 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(data["station_id"], 12345)
         self.assertEqual(data["station_name"], "Oulu, Ritaharju vt4")
         self.assertEqual(data["temperature_raw"], 10.7)
-        # No API key -> no symbol, no forecast
+        # FMI forecast is always fetched — current_symbol from first hourly entry
+        self.assertEqual(data["current_symbol"], "\u2600")  # WeatherSymbol3=1 → ☀
+        self.assertEqual(len(data["forecast"]), 2)  # 1 hourly + 1 daily
+        hourly = data["forecast"][0]
+        self.assertEqual(hourly["time"], "21:00")
+        self.assertEqual(hourly["date"], "2099-12-31")
+        self.assertEqual(hourly["temperature"], "16 \u00b0C")  # round(15.5)
+        self.assertEqual(hourly["symbol"], "\u2600")
+        self.assertNotIn("daily", hourly)
+        daily = data["forecast"][1]
+        self.assertEqual(daily["time"], "")
+        self.assertEqual(daily["date"], "2100-01-01")
+        self.assertEqual(daily["temperature"], "18 \u00b0C")  # round(18.2)
+        self.assertEqual(daily["symbol"], "\u26c5")  # WeatherSymbol3=2 → ⛅
+        self.assertTrue(daily["daily"])
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_api_station_data_fmi_error_degrades_gracefully(self, mock_get):
+        """@brief Empty FMI response returns empty forecast alongside Digitraffic observations."""
+        mock_get.side_effect = [
+            _mock_response(_STATION_LIST_PAYLOAD),
+            _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_empty(),
+            _mock_fmi_empty(),
+        ]
+        r = self._get("/api/station/12345/")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
         self.assertEqual(data["current_symbol"], "")
         self.assertEqual(data["forecast"], [])
+        self.assertEqual(data["temperature_raw"], 10.7)  # Digitraffic data still present
 
     @patch("weather.services.weather_service.requests.get")
     def test_api_station_data_unknown_id(self, mock_get):
@@ -397,130 +490,6 @@ class ViewTests(SimpleTestCase):
         r = self._get("/api/station/77777/")
         self.assertEqual(r.status_code, 502)
         self.assertIn("error", r.json())
-
-    @override_settings(OPENWEATHER_API_KEY="k")
-    @patch("weather.services.weather_service.requests.get")
-    def test_api_station_data_with_owm_key(self, mock_get):
-        """@brief With an OWM key, station data response includes current_symbol and forecast list."""
-        today_str = datetime.date.today().isoformat()
-        owm_city = {"weather": [{"id": 800}]}
-        owm_forecast = {
-            "list": [
-                {
-                    "dt_txt": f"{today_str} 15:00:00",
-                    "main": {"temp": 283.15},
-                    "weather": [{"id": 800}],
-                }
-            ]
-        }
-        mock_get.side_effect = [
-            _mock_response(_STATION_LIST_PAYLOAD),
-            _mock_response(_STATION_DATA_PAYLOAD),
-            _mock_response(owm_city),
-            _mock_response(owm_forecast),
-        ]
-
-        r = self._get("/api/station/12345/")
-        self.assertEqual(r.status_code, 200)
-        data = r.json()
-        self.assertEqual(data["current_symbol"], "☀")
-        self.assertEqual(len(data["forecast"]), 1)
-        self.assertEqual(data["forecast"][0]["time"], "15:00")
-        self.assertEqual(data["forecast"][0]["date"], today_str)
-        self.assertEqual(data["forecast"][0]["symbol"], "☀")
-        self.assertEqual(data["forecast"][0]["temperature"], "10 °C")
-
-    @override_settings(OPENWEATHER_API_KEY="k")
-    @patch("weather.services.weather_service.requests.get")
-    def test_forecast_excludes_items_on_or_after_cutoff(self, mock_get):
-        """@brief Forecast items on or after today+3 are excluded; items within 3 days are included."""
-        today = datetime.date.today()
-        within = today + datetime.timedelta(days=2)
-        cutoff = today + datetime.timedelta(days=3)
-
-        owm_city = {"weather": [{"id": 800}]}
-        owm_forecast = {
-            "list": [
-                {
-                    "dt_txt": f"{within.isoformat()} 09:00:00",
-                    "main": {"temp": 283.15},
-                    "weather": [{"id": 800}],
-                },
-                {
-                    "dt_txt": f"{cutoff.isoformat()} 09:00:00",
-                    "main": {"temp": 290.15},
-                    "weather": [{"id": 500}],
-                },
-            ]
-        }
-        mock_get.side_effect = [
-            _mock_response(_STATION_LIST_PAYLOAD),
-            _mock_response(_STATION_DATA_PAYLOAD),
-            _mock_response(owm_city),
-            _mock_response(owm_forecast),
-        ]
-
-        r = self._get("/api/station/12345/")
-        self.assertEqual(r.status_code, 200)
-        data = r.json()
-        self.assertEqual(len(data["forecast"]), 1)
-        self.assertEqual(data["forecast"][0]["date"], within.isoformat())
-
-    @override_settings(OPENWEATHER_API_KEY="k")
-    @patch("weather.services.weather_service.requests.get")
-    def test_forecast_item_includes_date_field(self, mock_get):
-        """@brief Each forecast item contains a 'date' field with the ISO date string."""
-        tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-        owm_city = {"weather": [{"id": 800}]}
-        owm_forecast = {
-            "list": [
-                {
-                    "dt_txt": f"{tomorrow} 12:00:00",
-                    "main": {"temp": 280.0},
-                    "weather": [{"id": 801}],
-                }
-            ]
-        }
-        mock_get.side_effect = [
-            _mock_response(_STATION_LIST_PAYLOAD),
-            _mock_response(_STATION_DATA_PAYLOAD),
-            _mock_response(owm_city),
-            _mock_response(owm_forecast),
-        ]
-
-        r = self._get("/api/station/12345/")
-        self.assertEqual(r.status_code, 200)
-        item = r.json()["forecast"][0]
-        self.assertIn("date", item)
-        self.assertEqual(item["date"], tomorrow)
-        self.assertEqual(item["time"], "12:00")
-
-    @override_settings(OPENWEATHER_API_KEY="k")
-    @patch("weather.services.weather_service.requests.get")
-    def test_forecast_skips_items_with_short_dt_txt(self, mock_get):
-        """@brief Forecast items with a dt_txt shorter than 10 characters are silently skipped."""
-        today_str = datetime.date.today().isoformat()
-        owm_city = {"weather": [{"id": 800}]}
-        owm_forecast = {
-            "list": [
-                {"dt_txt": "bad", "main": {"temp": 300.0}, "weather": [{"id": 800}]},
-                {
-                    "dt_txt": f"{today_str} 06:00:00",
-                    "main": {"temp": 283.15},
-                    "weather": [{"id": 800}],
-                },
-            ]
-        }
-        mock_get.side_effect = [
-            _mock_response(_STATION_LIST_PAYLOAD),
-            _mock_response(_STATION_DATA_PAYLOAD),
-            _mock_response(owm_city),
-            _mock_response(owm_forecast),
-        ]
-
-        r = self._get("/api/station/12345/")
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(len(r.json()["forecast"]), 1)
 
     @patch("weather.services.weather_service.requests.get")
     def test_api_nearest_station_returns_closest(self, mock_get):
@@ -579,36 +548,38 @@ class NextUpdateAtTests(SimpleTestCase):
         return {**_STATION_DATA_PAYLOAD, "dataUpdatedTime": ts}
 
     def test_known_observation_time_returns_latest_plus_interval_plus_delay(self):
-        """@brief next_update_at equals _latest_time + DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S."""
+        """@brief next_update_at equals _latest_time + DEFAULT_DATA_REFRESH_INTERVAL_S + STATION_UPDATE_DELAY_S."""
         from weather.services.definitions import Constants
         obs = datetime.datetime(2026, 5, 12, 12, 50, 0, tzinfo=dt_timezone.utc)
         ws = WeatherStation()
         ws.parse(self._make_payload("2026-05-12T12:50:00Z"))
         expected = obs + datetime.timedelta(
-            seconds=Constants.DEFAULT_POLLING_INTERVAL_S + Constants.STATION_UPDATE_DELAY_S
+            seconds=Constants.DEFAULT_DATA_REFRESH_INTERVAL_S + Constants.STATION_UPDATE_DELAY_S
         )
         self.assertEqual(ws.next_update_at, expected)
 
     def test_unknown_observation_time_returns_now_plus_default_interval(self):
-        """@brief next_update_at falls back to now + DEFAULT_POLLING_INTERVAL_S when observation time is unknown."""
+        """@brief next_update_at falls back to now + DEFAULT_DATA_REFRESH_INTERVAL_S when observation time is unknown."""
         from django.utils import timezone as dj_tz
+
         from weather.services.definitions import Constants
         ws = WeatherStation()  # _latest_time stays at epoch (year=1970)
         before = dj_tz.now()
         result = ws.next_update_at
         after = dj_tz.now()
-        self.assertGreaterEqual(result, before + datetime.timedelta(seconds=Constants.DEFAULT_POLLING_INTERVAL_S))
-        self.assertLessEqual(result, after + datetime.timedelta(seconds=Constants.DEFAULT_POLLING_INTERVAL_S + 1))
+        self.assertGreaterEqual(result, before + datetime.timedelta(seconds=Constants.DEFAULT_DATA_REFRESH_INTERVAL_S))
+        self.assertLessEqual(result, after + datetime.timedelta(seconds=Constants.DEFAULT_DATA_REFRESH_INTERVAL_S + 1))
 
     def test_seconds_until_next_update_recent_observation(self):
-        """@brief seconds_until_next_update returns DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S for a just-updated station."""
+        """@brief seconds_until_next_update returns DEFAULT_DATA_REFRESH_INTERVAL_S + STATION_UPDATE_DELAY_S for a just-updated station."""
         from django.utils import timezone as dj_tz
+
         from weather.services.definitions import Constants
         now = dj_tz.now()
         ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         ws = WeatherStation()
         ws.parse(self._make_payload(ts))
-        expected = Constants.DEFAULT_POLLING_INTERVAL_S + Constants.STATION_UPDATE_DELAY_S
+        expected = Constants.DEFAULT_DATA_REFRESH_INTERVAL_S + Constants.STATION_UPDATE_DELAY_S
         result = ws.seconds_until_next_update
         self.assertGreaterEqual(result, expected - 2)
         self.assertLessEqual(result, expected + 2)
@@ -620,10 +591,11 @@ class NextUpdateAtTests(SimpleTestCase):
         self.assertEqual(ws.seconds_until_next_update, 0)
 
     def test_seconds_until_next_update_clamps_to_600_max(self):
-        """@brief seconds_until_next_update is clamped to 600 even when DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S would exceed it."""
-        from weather.services.definitions import Constants
+        """@brief seconds_until_next_update is clamped to 600 even when DEFAULT_DATA_REFRESH_INTERVAL_S + STATION_UPDATE_DELAY_S would exceed it."""
         # Temporarily make the sum exceed 600 by using a future obs time far ahead
         from django.utils import timezone as dj_tz
+
+        from weather.services.definitions import Constants
         future = dj_tz.now() + datetime.timedelta(seconds=700)
         ws = WeatherStation()
         ws._latest_time = future
@@ -640,31 +612,37 @@ class StationDataCacheTests(SimpleTestCase):
 
     @patch("weather.services.weather_service.requests.get")
     def test_cached_response_served_without_second_digitraffic_request(self, mock_get):
-        """@brief Second request within next_update_at window is served from cache; Digitraffic not called again."""
+        """@brief Second request within next_update_at window is served from cache; no network calls made again."""
         mock_get.side_effect = [
             _mock_response(_STATION_LIST_PAYLOAD),
             _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_hourly(),
+            _mock_fmi_daily(),
         ]
         self._get("/api/station/12345/")
         # Cache is now populated. A second request should not call mock_get again.
         self._get("/api/station/12345/")
-        # mock_get was called exactly twice (station list + station data), not four times.
-        self.assertEqual(mock_get.call_count, 2)
+        # mock_get was called exactly 4 times (station list + station data + 2x FMI), not 8.
+        self.assertEqual(mock_get.call_count, 4)
 
     @patch("weather.services.weather_service.requests.get")
     def test_cache_bypassed_with_refresh_param(self, mock_get):
-        """@brief ?refresh=1 bypasses the cache and fetches fresh data from Digitraffic."""
+        """@brief ?refresh=1 bypasses the cache and fetches fresh data from Digitraffic and FMI."""
         mock_get.side_effect = [
             _mock_response(_STATION_LIST_PAYLOAD),
             _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_hourly(),
+            _mock_fmi_daily(),
         ]
-        self._get("/api/station/12345/")          # populate cache (2 calls)
+        self._get("/api/station/12345/")          # populate cache (4 calls)
         mock_get.side_effect = [
             _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_hourly(),
+            _mock_fmi_daily(),
         ]
-        r = self._get("/api/station/12345/?refresh=1")  # station list cached, only station data re-fetched
+        r = self._get("/api/station/12345/?refresh=1")  # station list cached; re-fetches data + FMI
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_get.call_count, 7)
 
     @patch("weather.services.weather_service.requests.get")
     def test_next_update_at_not_in_json_response(self, mock_get):
@@ -672,6 +650,8 @@ class StationDataCacheTests(SimpleTestCase):
         mock_get.side_effect = [
             _mock_response(_STATION_LIST_PAYLOAD),
             _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_hourly(),
+            _mock_fmi_daily(),
         ]
         r = self._get("/api/station/12345/")
         self.assertEqual(r.status_code, 200)
@@ -683,6 +663,8 @@ class StationDataCacheTests(SimpleTestCase):
         mock_get.side_effect = [
             _mock_response(_STATION_LIST_PAYLOAD),
             _mock_response(_STATION_DATA_PAYLOAD),
+            _mock_fmi_hourly(),
+            _mock_fmi_daily(),
         ]
         self._get("/api/station/12345/")           # populate cache
         mock_get.side_effect = []                  # no further calls allowed

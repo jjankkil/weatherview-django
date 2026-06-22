@@ -133,7 +133,6 @@ const WEEKDAYS_SV = ['Sö', 'Må', 'Ti', 'On', 'To', 'Fr', 'Lö'];
  * @property {string} lang Current display language ('fi' or 'en').
  * @property {Array} stations List of available weather stations.
  * @property {?number} currentStationId ID of the currently selected weather station.
- * @property {string} apiKey OpenWeatherMap API key for weather symbols and forecast.
  * @property {boolean} showCamera Whether to display weather camera images.
  * @property {?number} refreshTimer Timeout ID for the scheduled weather refresh.
  * @property {?number} countdownTimer Interval ID for the countdown display timer.
@@ -508,15 +507,15 @@ function forecastGoTo(i) {
         const day = new Date(f.date + 'T00:00:00').getDay();
         timeLabel = weekdays[day];
       }
+    } else if (f.time && f.date) {
+      // f.time is UTC (from FMI); convert to browser-local time for display.
+      const slotUtc = new Date(`${f.date}T${f.time}:00Z`);
+      const localHour = slotUtc.getHours();
+      const localDay  = slotUtc.getDay();
+      timeLabel = `${weekdays[localDay]} ${localHour}–${localHour + 3}`;
     } else if (f.time) {
       const startHour = parseInt(f.time.split(':')[0], 10);
-      const range = `${startHour}–${startHour + 3}`;
-      if (f.date) {
-        const day = new Date(f.date + 'T00:00:00').getDay();
-        timeLabel = `${weekdays[day]} ${range}`;
-      } else {
-        timeLabel = range;
-      }
+      timeLabel = `${startHour}–${startHour + 3}`;
     }
     const item = document.createElement('div');
     item.className = f.daily ? 'forecast-item forecast-item--daily' : 'forecast-item';

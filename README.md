@@ -1,8 +1,8 @@
 # weatherview-django
 
-A browser-based road weather viewer for Finnish roads. Displays live observations from [Digitraffic](https://www.digitraffic.fi/) road weather stations together with an optional short-range forecast from [OpenWeatherMap](https://openweathermap.org/).
+A browser-based road weather viewer for Finnish roads. Displays live observations from [Digitraffic](https://www.digitraffic.fi/) road weather stations together with a short-range forecast from [FMI open data](https://en.ilmatieteenlaitos.fi/open-data) (WFS API — no API key required).
 
-Pick any of 400+ Finnish road weather stations and see current observations, FMI feels-like temperature, wind, visibility, present weather and an optional short-range forecast — all in the browser.
+Pick any of 400+ Finnish road weather stations and see current observations, FMI feels-like temperature, wind, visibility, present weather and a short-range forecast — all in the browser.
 
 <img src="docs/screenshot.png" alt="Screenshot of the Tiesää web UI" width="80%">
 
@@ -14,15 +14,14 @@ Pick any of 400+ Finnish road weather stations and see current observations, FMI
 - 🌡️ Air temperature with FMI feels-like calculation
 - 💨 Wind speed (avg / max), direction with cardinal text
 - 💧 Humidity, dew point, road surface temperature, visibility, temperature rate of change, present weather
-- 🌦️ Forecast carousel: 3-hourly slots for the rest of today (labeled e.g. _Ma 9–12_), followed by one daily summary per future day (up to 5 days from OWM); paginated in groups of three + current weather symbol
+- 🌦️ Forecast carousel: 3-hourly slots for the rest of today (labeled e.g. _Ma 9–12_), followed by one daily summary per future day (up to 8 days); paginated in groups of three + current weather symbol from FMI WFS open data (no API key needed)
 - FI/SV/EN Finnish/Swedish/English UI toggle
 - 🔄 Server-driven auto-refresh: the frontend schedules its next fetch only when the server signals new data is due; no blind fallback polling
 - ⭐ 5-item MRU station list, persisted in browser `localStorage`
 - ⏳ Wait cursor + dimmed card while loading
 - 📍 Automatic nearest-station selection using the browser Geolocation API (on first visit or when "Use my location" is enabled in Settings)
 - 💾 Session-based settings (current station, language, camera visibility, follow-location)
-- 🔒 Application-level OpenWeatherMap API key — no per-user key required
-- 🚦 Built-in IP-based rate limiting on the weather API endpoint (configurable)
+- Built-in IP-based rate limiting on the weather API endpoint (configurable)
 - 🚀 In-memory station-list cache (5 min) — no repeated 447-row downloads
 - ⚡ Per-station observation cache — Digitraffic is only queried by the scheduled auto-refresh; manual refreshes and page reloads are served from cache
 
@@ -35,7 +34,7 @@ No database required. Settings live in signed-cookie sessions; observation data 
 ### Requirements
 
 - Python **3.11+** (tested on 3.13)
-- Internet access (Digitraffic + OpenWeatherMap)
+- Internet access (Digitraffic + FMI open data)
 
 ### Install & run
 
@@ -58,7 +57,6 @@ cp .env.example .env
 
 ```env
 WVD_SECRET_KEY=<generate with: python -c "from django.utils.crypto import get_random_string; print(get_random_string(50))">
-OPENWEATHER_API_KEY=<your OpenWeatherMap API key>
 ```
 
 Then start the development server:
@@ -77,16 +75,10 @@ startup.bat
 Or manually:
 
 ```bash
-WVD_SECRET_KEY=... OPENWEATHER_API_KEY=... python manage.py runserver
+WVD_SECRET_KEY=... python manage.py runserver
 ```
 
 Then open <http://127.0.0.1:8000/> in your browser.
-
-### OpenWeatherMap API key
-
-Weather symbols and forecast data require an OpenWeatherMap API key. The key is configured once by the application operator (in `.env` or the server environment) — users do not need their own key.
-
-Register a free account at <https://openweathermap.org/> to obtain a key.
 
 ---
 
@@ -116,7 +108,7 @@ pip install -r requirements.txt
 
 ### 3. Configure environment
 
-The app **will not start** without `WVD_SECRET_KEY` and `OPENWEATHER_API_KEY` set. Create `/opt/weatherview/.env` from the provided template:
+The app **will not start** without `WVD_SECRET_KEY` set. Create `/opt/weatherview/.env` from the provided template:
 
 ```bash
 cp /opt/weatherview/.env.example /opt/weatherview/.env
@@ -125,9 +117,8 @@ cp /opt/weatherview/.env.example /opt/weatherview/.env
 Then edit `/opt/weatherview/.env` and fill in the required values:
 
 ```env
-# Required — the service will crash on startup if either of these is missing or left as the placeholder
+# Required — the service will crash on startup if this is missing or left as the placeholder
 WVD_SECRET_KEY=<generate with: python3 -c "from django.utils.crypto import get_random_string; print(get_random_string(50))">
-OPENWEATHER_API_KEY=<your OpenWeatherMap API key>
 
 # Recommended — restrict which hostnames Django accepts
 WVD_ALLOWED_HOSTS=<hostname-or-ip>,localhost
@@ -256,6 +247,9 @@ sudo systemctl restart weatherview
 source /opt/weatherview/.venv/bin/activate
 python manage.py collectstatic --noinput
 sudo systemctl restart weatherview
+
+# Service status should show no errors:
+sudo systemctl status weatherview
 ```
 
 ---
@@ -290,7 +284,7 @@ weatherview-django/
     ├── urls.py
     ├── services/               # Domain logic (parsing, formulas, HTTP clients)
     │   ├── definitions.py      # Constants, API URLs
-    │   ├── weather_service.py  # Digitraffic + OpenWeatherMap HTTP client
+    │   ├── weather_service.py  # Digitraffic + FMI WFS HTTP client
     │   ├── station_info.py     # Station metadata model
     │   ├── weather_station.py  # Observation parsing + derived properties
     │   ├── physics.py          # FMI feels-like temperature formula
@@ -313,9 +307,9 @@ scripts/
 - **Digitraffic** road weather API (no key required)
   - `GET /api/weather/v1/stations` — station list
   - `GET /api/weather/v1/stations/{id}/data` — sensor observations
-- **OpenWeatherMap** (free tier)
-  - Current weather (by city + lat/lon fallback)
-  - 5-day / 3-hour forecast
+- **FMI open data** WFS API (no key required)
+  - 3-hourly forecast for today
+  - Daily forecast for up to 8 future days
 
 ### HTTP endpoints (server-side)
 
@@ -365,7 +359,7 @@ This generates HTML documentation in `docs/doxygen/html/`. Open `docs/doxygen/ht
 
 Two test surfaces ship with the project:
 
-**Offline Django tests** — 44 tests covering helpers, FMI physics, JSON parsing, forecast date filtering, upstream error handling (5xx / 4xx / network failures), per-station caching logic, and all HTTP endpoints (mocked):
+**Offline Django tests** — tests covering helpers, FMI physics, FMI symbol mapping, XML parsing, upstream error handling (5xx / 4xx / network failures), per-station caching logic, and all HTTP endpoints (mocked):
 
 ```bash
 python manage.py test weather
@@ -373,14 +367,11 @@ python manage.py test weather
 
 These run in well under a second and require no network access.
 
-**Live smoke test** — hits Digitraffic and (optionally) OpenWeatherMap end-to-end:
+**Live smoke test** — hits Digitraffic and FMI open data end-to-end (no API key needed):
 
 ```bash
-python scripts/smoke_test.py                  # quick check (no forecast)
-python scripts/smoke_test.py 23819            # specific station id
-python scripts/smoke_test.py --api-key XXXX   # exercise OWM symbol + forecast
-# or pass it via env var:
-set OWM_API_KEY=XXXX && python scripts/smoke_test.py
+python scripts/smoke_test.py          # quick check
+python scripts/smoke_test.py 23819    # specific station id
 ```
 
 ---
@@ -388,4 +379,4 @@ set OWM_API_KEY=XXXX && python scripts/smoke_test.py
 ## Credits
 
 - Road weather data: **Fintraffic / Digitraffic** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-- Forecast data: **OpenWeatherMap**.
+- Forecast data: **Finnish Meteorological Institute (FMI)** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

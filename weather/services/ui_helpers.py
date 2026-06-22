@@ -9,68 +9,6 @@ weather symbol mapping, wind direction translation, and station name parsing.
 """
 
 
-def get_station_city(formatted_name: str) -> str:
-    """Extract city name from a formatted station name.
-
-    Parses a formatted station name (expected format: "City, Region") to extract
-    and return only the city portion (before the comma).
-
-    @param formatted_name The formatted station name from @ref WeatherStationInfo.formatted_name.
-    @return The city name (text before the first comma), or empty string if no comma is present.
-    @details
-    - Expects input format: "City, Region Code" or "City, Details"
-    - Returns the entire input if no comma is found
-    - Returns empty string if input is None or empty
-    """
-    if formatted_name and "," in formatted_name:
-        return formatted_name.split(",")[0]
-    return ""
-
-
-def get_weather_symbol(weather_id: int) -> str:
-    """Map OpenWeatherMap weather condition ID to a Unicode emoji symbol.
-
-    Converts OpenWeatherMap API weather condition codes (200-804) into human-readable
-    Unicode weather emoji symbols for display in the user interface.
-
-    @param weather_id The weather condition ID from OpenWeatherMap API.
-    @return Unicode emoji symbol representing the weather condition, or empty string if unmapped.
-    @details
-    - IDs 200-232: Thunderstorm conditions → ⛈ (thunder cloud)
-    - IDs 300-321: Drizzle conditions → 🌦 (cloud with rain)
-    - IDs 500-531: Rain conditions → 🌧 (cloud with heavy rain)
-    - IDs 600-622: Snow conditions → ❄ (snowflake)
-    - IDs 701-741: Mist/fog conditions → 🌫 (fog)
-    - ID 762: Volcanic ash → 🌋 (volcano)
-    - ID 771: Squall/wind → 💨 (wind)
-    - ID 781: Tornado → 🌪 (tornado)
-    - ID 800: Clear/sunny → ☀ (sun)
-    - IDs 801-804: Cloudy conditions → ☁ (cloud)
-    - Other IDs: No mapping available → empty string
-    """
-    if 200 <= weather_id <= 232:
-        return "⛈"
-    elif 300 <= weather_id <= 321:
-        return "🌦"
-    elif 500 <= weather_id <= 531:
-        return "🌧"
-    elif 600 <= weather_id <= 622:
-        return "❄"
-    elif 701 <= weather_id <= 741:
-        return "🌫"
-    elif weather_id == 762:
-        return "🌋"
-    elif weather_id == 771:
-        return "💨"
-    elif weather_id == 781:
-        return "🌪"
-    elif weather_id == 800:
-        return "☀"
-    elif 801 <= weather_id <= 804:
-        return "☁"
-    return ""
-
-
 def wind_direction_as_text(degrees, lang="fi") -> str:
     """Convert wind direction degrees to human-readable cardinal direction text.
 

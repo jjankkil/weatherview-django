@@ -6,7 +6,7 @@ This document describes the structure and runtime behavior of `weatherview-djang
 
 ## 1. Overview
 
-`weatherview-django` is a Django-served single-page application that visualizes live road weather observations from **Fintraffic / Digitraffic** and an optional short-range forecast from **OpenWeatherMap (OWM)**. The server is stateless apart from:
+`weatherview-django` is a Django-served single-page application that visualizes live road weather observations from **Fintraffic / Digitraffic** and a short-range forecast from **FMI open data** (WFS API — no API key required). The server is stateless apart from:
 
 - a **signed-cookie session** holding per-user UI preferences, and
 - an **in-process cache** holding the parsed station list (TTL ≈ 5 min), per-station observation responses (TTL derived from each station's update cadence), and IP rate-limit counters.
@@ -46,7 +46,7 @@ flowchart LR
     subgraph External
         DT[("Digitraffic<br/>road weather API")]
         DTCam[("Digitraffic<br/>weathercam API")]
-        OWM[("OpenWeatherMap<br/>current + forecast")]
+        FMI_WFS[("FMI WFS<br/>forecast (open data)")]
     end
 
     UI <-->|fetch JSON| VIEWS
@@ -66,7 +66,7 @@ flowchart LR
     SL --> UIH
     WS --> DEF
     WS -->|HTTPS| DT
-    WS -->|HTTPS| OWM
+    WS -->|HTTPS| FMI_WFS
 ```
 
 Key source locations:
@@ -95,10 +95,11 @@ classDiagram
         +error_message: str
         +get_station_list() WeatherStationList
         +get_station_data(station_id) WeatherStation
-        +get_city_weather(city, coords) dict
-        +get_forecast(coords) dict
         +build_full_weather_response(id, list, lang) dict
-        -_get(url, key) dict|list
+        -_get(url) dict|list
+        -_get_xml(url) str
+        -_parse_fmi_xml(xml_text) dict
+        -_get_fmi_forecast(coordinates) tuple
     }
 
     class WeatherStationList {
@@ -171,7 +172,7 @@ classDiagram
 | ------ | ------------------------ | --------------------- | ------------------------------------------------- |
 | GET    | `/`                      | `index`               | Serves the SPA shell (`index.html`)               |
 | GET    | `/api/stations/`         | `api_stations`        | Returns the cached, filtered station catalogue    |
-| GET    | `/api/station/<int:id>/` | `api_station_data`    | Parsed observations + optional OWM forecast       |
+| GET    | `/api/station/<int:id>/` | `api_station_data`    | Parsed observations + FMI WFS forecast            |
 | GET    | `/api/settings/`         | `api_settings_get`    | Reads session settings                            |
 | POST   | `/api/settings/save/`    | `api_settings_save`   | Writes whitelisted session settings (CSRF-exempt) |
 | GET    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to `?lat=…&lon=…`     |
@@ -226,7 +227,7 @@ sequenceDiagram
     participant SC as LocMem cache<br/>(station_data:{id})
     participant WS as WeatherService
     participant DT as Digitraffic<br/>(weather data)
-    participant OWM as OpenWeatherMap
+    participant FMI as FMI WFS open data
 
     Browser->>View: GET /api/station/23819/
     View->>View: _is_rate_limited(ip) → 429 if exceeded
@@ -242,16 +243,11 @@ sequenceDiagram
         WS->>DT: GET /stations/{id}/data
         DT-->>WS: {dataUpdatedTime, sensorValues:[...]}
         WS->>WS: WeatherStation.parse → derive temp/wind/feels-like/road-temp/visibility/dew-point/humidity
-        alt OPENWEATHER_API_KEY set in settings
-            WS->>OWM: GET /weather?q=city
-            alt city lookup fails
-                WS->>OWM: GET /weather?lat&lon (fallback)
-            end
-            OWM-->>WS: current weather (id → symbol)
-            WS->>OWM: GET /forecast?lat&lon
-            OWM-->>WS: 3-hour forecast list (5-day window)
-            WS->>WS: split into today's 3-hourly entries + one daily summary per future date
-        end
+        WS->>FMI: GET WFS?timestep=180&starttime=today_00:00Z&endtime=today_23:59Z (3-hourly)
+        FMI-->>WS: WFS XML — today’s 3-hourly Temperature + WeatherSymbol3
+        WS->>FMI: GET WFS?timestep=1440&starttime=tomorrow_12:00Z&endtime=+8days_12:00Z (daily)
+        FMI-->>WS: WFS XML — future daily Temperature + WeatherSymbol3
+        WS->>WS: build today’s 3-hourly items + one daily summary per future date
         WS-->>View: dict (station_name, temperature, ..., _next_update_at, forecast[])
         View->>SC: set(response, ttl = next_update_at - now + 30s)
         View-->>Browser: 200 JSON (or 502 on upstream error)
@@ -297,7 +293,7 @@ sequenceDiagram
 
 `WeatherStation` exposes two derived properties based on the latest observation timestamp:
 
-- **`next_update_at`** — absolute UTC `datetime` of the next expected observation: `_latest_time + DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S`. Falls back to `now + DEFAULT_POLLING_INTERVAL_S` when the observation time is unknown. Used to set the cache TTL and to recompute the remaining wait when serving from cache.
+- **`next_update_at`** — absolute UTC `datetime` of the next expected observation: `_latest_time + DEFAULT_DATA_REFRESH_INTERVAL_S + STATION_UPDATE_DELAY_S`. Falls back to `now + DEFAULT_DATA_REFRESH_INTERVAL_S` when the observation time is unknown. Used to set the cache TTL and to recompute the remaining wait when serving from cache.
 - **`seconds_until_next_update`** — integer seconds until `next_update_at`, clamped to `[0, 600]`. Included in the API response for the frontend to schedule its next polling call.
 
 The server caches each station's response and serves it directly for all requests **except** those carrying `?refresh=1`. The frontend countdown timer appends `?refresh=1` when it fires, so Digitraffic is only queried on the scheduled refresh cycle. Manual refreshes and page reloads are always served from cache while the entry is alive. When serving from cache, `seconds_until_next_update` is recomputed from `_next_update_at` so the frontend receives the accurate remaining wait time regardless of when it joined the cycle.
@@ -314,7 +310,7 @@ Callers check `has_error`:
 
 - Station list errors → cache is **not** populated; the next request will retry.
 - Observation errors → view returns `{"error": <clean message>}` with HTTP **502**.
-- OWM errors → silently degraded: `current_symbol = ""` and `forecast = []` are returned alongside the Digitraffic data.
+- FMI WFS errors degrade gracefully: `current_symbol = ""` and `forecast = []` are returned alongside the Digitraffic data.
 
 **Frontend (JS):** `fetchWeather` handles all non-2xx responses before attempting `r.json()`:
 
@@ -356,7 +352,6 @@ flowchart TB
     C3 -.holds.-> K7["GeoJSON camera stations<br/>from Digitraffic weathercam API"]
 ```
 
-- The OWM API key is a server-side environment variable (`OPENWEATHER_API_KEY`). It never reaches the browser or session cookie.
 - The station list and IP rate-limit counters are cached per-process (`LocMemCache`). A single Gunicorn worker is therefore required unless you swap to a shared cache backend (Redis/Memcached).
 - Weathercam station data is cached in-memory on the client; it persists for the page lifetime and is refreshed on browser reload.
 
@@ -387,17 +382,15 @@ flowchart LR
     subgraph svc["«block» WeatherService"]
         direction TB
         P1[[get_station_data]]
-        P2[[get_city_weather]]
-        P3[[get_forecast]]
+        P4[[_get_fmi_forecast]]
     end
 
     L3 --> P1
-    L3 -.optional.-> P2
-    L3 -.optional.-> P3
+    L3 --> P4
 
     P1 -->|HTTPS| ED[("Digitraffic")]
-    P2 -->|HTTPS| EO[("OpenWeatherMap /weather")]
-    P3 -->|HTTPS| EF[("OpenWeatherMap /forecast")]
+    P4 -->|HTTPS XML| EF1[("FMI WFS hourly")]
+    P4 -->|HTTPS XML| EF2[("FMI WFS daily")]
 ```
 
 ---
@@ -441,12 +434,13 @@ flowchart TD
 
 ### 8.1 Forecast carousel
 
-The forecast section renders a paginated carousel of 3-hour OWM forecast items:
+The forecast section renders a hybrid paginated carousel:
 
-- **Data**: The backend returns all OWM 3-hour periods with `dt_txt` falling within the next 3 calendar days (today up to, but not including, today + 3). Each item carries `time` (HH:MM), `date` (YYYY-MM-DD), `temperature` (rounded °C string), and `symbol`.
+- **Data**: The backend returns today’s 3-hourly FMI WFS entries for the rest of the day, followed by one daily summary per future day (up to 8 days). Each hourly item carries `time` (HH:MM), `date` (YYYY-MM-DD), `temperature` (rounded \u00b0C string), and `symbol`. Daily items additionally carry `daily: true` and have an empty `time` string.
 - **Page size**: 3 items per page (`FORECAST_PAGE_SIZE = 3` in `app.js`).
-- **Navigation**: `‹` / `›` buttons call `forecastGoTo(i)`, which slices `forecastCarousel.items` and re-renders the visible page. Buttons are disabled at the first and last page respectively.
-- **Day label**: Each item's time label is prefixed with a localized weekday abbreviation (e.g. "Ma 15:00") derived from the `date` field, so users can see which day a period belongs to.
+- **Navigation**: `\u2039` / `\u203a` buttons call `forecastGoTo(i)`, which slices `forecastCarousel.items` and re-renders the visible page. Buttons are disabled at the first and last page respectively.
+- **Time label**: 3-hourly items show a weekday + time-range label (e.g. “Ma 9–12”); daily items show only the weekday abbreviation (e.g. “Ti”). Both are derived from the `date` field.
+- **Visual distinction**: Daily items receive the CSS class `forecast-item--daily` (dashed border, slightly reduced opacity) to distinguish them from intra-day 3-hourly items.
 - **Reset on refresh**: `forecastCarousel.index` resets to 0 whenever new station data arrives.
 
 Related code: [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) (`forecastGoTo`, `forecastCarousel`, `FORECAST_PAGE_SIZE`) · [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) (`.forecast-carousel`, `.forecast-nav-btn`) · [weather/services/weather_service.py](../weather/services/weather_service.py) (`build_full_weather_response`).
@@ -546,15 +540,15 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 
 ## 11. Testing Surfaces
 
-- **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, JSON parsing, forecast date filtering, per-station caching logic (`next_update_at`, cache hit/miss, `_next_update_at` not leaked), and all view endpoints. Run: `python manage.py test weather`.
-- **Live smoke test** — [scripts/smoke_test.py](../scripts/smoke_test.py). Hits real Digitraffic (and OWM if a key is supplied).
+- **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, FMI symbol mapping, JSON/XML parsing, per-station caching logic (`next_update_at`, cache hit/miss, `_next_update_at` not leaked), and all view endpoints. Run: `python manage.py test weather`.
+- **Live smoke test** — [scripts/smoke_test.py](../scripts/smoke_test.py). Hits real Digitraffic and FMI open data endpoints (no API key needed).
 
 ---
 
 ## 12. Operational Notes
 
 - **Sessions**: Django signed-cookie backend. No server-side session store needed; rotating `SECRET_KEY` invalidates all stored settings.
-- **API key**: `OPENWEATHER_API_KEY` is read from the environment at startup via `settings.OPENWEATHER_API_KEY`. Set it in the server's environment or `EnvironmentFile`. It is never logged or stored in sessions. If unset, OWM calls are skipped and `current_symbol`/`forecast` are returned empty.
+- **Forecast**: FMI open data WFS API is used for both the current weather symbol and the forecast carousel. No API key is required; the forecast is always available. Two requests are made per station fetch: one 3-hourly request for today and one daily request for the following 8 days. FMI WFS returns XML (GML), parsed with `xml.etree.ElementTree` (stdlib). Failures degrade gracefully to empty `current_symbol` and `forecast`.
 - **Rate limiting**: `_is_rate_limited(ip)` in `views.py` implements a sliding-window counter stored in `LocMemCache`. The limit is configurable via the `WEATHER_RATE_LIMIT` env var (default `15/m`). Exceeding the limit returns HTTP 429. Because the counter lives in `LocMemCache`, it resets on process restart and is not shared across workers.
 - **Cache backend**: Default is in-process `LocMemCache`. Two cache namespaces are used: `weather_station_list` (station catalogue, TTL ≈ 5 min) and `station_data:{id}` (per-station observation response, TTL = `next_update_at - now + 30 s`). Swap to Redis/Memcached if running multiple workers and you want a shared station list, rate-limit store, and observation cache.
 - **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py](../weather/services/weather_service.py)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as HTTP 502 with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner; no automatic retry is scheduled — the user must click **Päivitä nyt** to retry.

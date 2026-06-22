@@ -352,13 +352,13 @@ class WeatherStation:
         """Return the absolute UTC datetime when new station data is expected.
 
         Returns the absolute UTC datetime when new station data is expected:
-        `_latest_time + DEFAULT_POLLING_INTERVAL_S + STATION_UPDATE_DELAY_S`.
-        Falls back to `now + DEFAULT_POLLING_INTERVAL_S` when the observation
+        `_latest_time + DEFAULT_DATA_REFRESH_INTERVAL_S + STATION_UPDATE_DELAY_S`.
+        Falls back to `now + DEFAULT_DATA_REFRESH_INTERVAL_S` when the observation
         time is unknown (year <= 1970).
 
         @return UTC datetime of the expected next update.
         @details
-        - DEFAULT_POLLING_INTERVAL_S is the assumed station update cadence (5 min)
+        - DEFAULT_DATA_REFRESH_INTERVAL_S is the assumed station data refresh cadence (5 min)
         - STATION_UPDATE_DELAY_S accounts for the time Digitraffic takes to publish
           new data after the station records an observation
         """
@@ -368,8 +368,8 @@ class WeatherStation:
         except Exception:
             now = datetime.now(tz=timezone.utc)
         if self._latest_time.year <= 1970:
-            return now + timedelta(seconds=Constants.DEFAULT_POLLING_INTERVAL_S)
-        return self._latest_time + timedelta(seconds=Constants.DEFAULT_POLLING_INTERVAL_S + Constants.STATION_UPDATE_DELAY_S)
+            return now + timedelta(seconds=Constants.DEFAULT_DATA_REFRESH_INTERVAL_S)
+        return self._latest_time + timedelta(seconds=Constants.DEFAULT_DATA_REFRESH_INTERVAL_S + Constants.STATION_UPDATE_DELAY_S)
 
     @property
     def seconds_until_next_update(self) -> int:

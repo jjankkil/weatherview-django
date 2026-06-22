@@ -12,16 +12,17 @@ import json
 import math
 import time
 from datetime import timezone
-from django.conf import settings
-from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.views.decorators.csrf import csrf_exempt
-from django.shortcuts import render
-from django.core.cache import cache
-from django.utils import timezone as dj_tz
 
-from .services.weather_service import WeatherService
+from django.conf import settings
+from django.core.cache import cache
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.utils import timezone as dj_tz
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+
 from .services.station_info import WeatherStationList
+from .services.weather_service import WeatherService
 
 _STATION_CACHE_KEY = 'weather_station_list'  #!< Cache key for the FMI station list
 _STATION_DATA_KEY = 'station_data:{}'  #!< Per-station cache key template; formatted with station_id
@@ -157,12 +158,12 @@ def api_stations(request):
 def api_station_data(request, station_id: int):
     """Get current weather data for a specific station.
 
-    HTTP GET endpoint that retrieves comprehensive weather data combining FMI observations
-    with optional OpenWeatherMap current conditions and forecast. Serves cached data when
-    a fresh Digitraffic response is not yet expected, to minimise outbound requests.
+    HTTP GET endpoint that retrieves comprehensive weather data combining Digitraffic
+    observations with FMI WFS forecast data (no API key required). Serves cached data
+    when a fresh Digitraffic response is not yet expected, to minimise outbound requests.
 
     @param request Django request object with user session.
-    @param station_id FMI station ID from URL path parameter.
+    @param station_id Digitraffic station ID from URL path parameter.
     @return JsonResponse with aggregated weather data:
             - On success (200): complete weather dict with temperature, wind, humidity,
               current_symbol, forecast, etc. (see @ref WeatherService.build_full_weather_response)
@@ -172,15 +173,14 @@ def api_station_data(request, station_id: int):
     @details
     - HTTP method: GET
     - Display language from session settings (default: Finnish)
-    - Returns HTTP 502 (Bad Gateway) if station not found or FMI API fails
-    - If no OpenWeatherMap API key: returns FMI data only (no weather symbols/forecast)
-    - Forecast covers all OWM 3-hour periods up to (but not including) today + 3 days
+    - Returns HTTP 502 (Bad Gateway) if station not found or Digitraffic API fails
+    - FMI WFS forecast is always fetched; failures degrade gracefully to empty forecast
     - Per-station response cache (key: 'station_data:{id}'): on a cache hit the cached
       response is served immediately unless the request carries ?refresh=1 (sent by the
       frontend countdown timer when new data is due). On a miss or ?refresh=1, fresh data
-      is fetched from Digitraffic and cached with a TTL derived from next_update_at (+30 s
-      safety margin). seconds_until_next_update is recomputed from _next_update_at when
-      serving from cache so the frontend always receives the accurate remaining wait time.
+      is fetched from Digitraffic and FMI and cached with a TTL derived from next_update_at
+      (+30 s safety margin). seconds_until_next_update is recomputed from _next_update_at
+      when serving from cache so the frontend always receives the accurate remaining wait time.
       The internal _next_update_at field is stripped before the response is sent to the client.
     """
     ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')).split(',')[0].strip()

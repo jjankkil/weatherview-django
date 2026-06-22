@@ -16,9 +16,8 @@ class Constants:
 
     Defines sentinel values, timing parameters, and data limits used by the weather service.
     """
-    FORECAST_CNT = 3  #!< Legacy constant (no longer used for forecast slicing; kept for reference)
     STATION_UPDATE_DELAY_S = 60  #!< Delay in seconds before checking for new station data
-    DEFAULT_POLLING_INTERVAL_S = 300  #!< Default polling interval when update timing is unknown (5 min)
+    DEFAULT_DATA_REFRESH_INTERVAL_S = 300  #!< Default weather data refresh interval at a station when update timing is unknown (5 min)
     INVALID_VALUE = -999.0  #!< Sentinel value indicating missing or invalid measurement
     MISSING_UNIT = ["///", "???"]  #!< Unit string values that indicate missing data
 
@@ -47,22 +46,24 @@ class Formats:
 class Urls:
     """API endpoint templates for weather data providers.
 
-    Contains URL templates for FMI (Finnish Meteorological Institute) and OpenWeatherMap
-    APIs. URL templates with {} placeholders are formatted with query parameters at runtime.
+    Contains URL templates for the Digitraffic road weather station API and the
+    FMI WFS open data forecast API. All endpoints are freely accessible without
+    authentication. URL templates with {} placeholders are formatted with query
+    parameters at runtime.
 
     @details
-    - FMI endpoints return GeoJSON-formatted weather station and measurement data
-    - OpenWeatherMap endpoints require API key authentication (appid parameter)
-    - All endpoints return JSON responses
+    - Digitraffic endpoints return GeoJSON-formatted station data (JSON)
+    - FMI WFS forecast endpoint returns XML (GML/WFS 2.0 simple feature format)
     """
-    OPENWEATHERMAP_CITY_URL = (
-        "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}"
-    )  #!< Current weather by city name. Args: city name, API key
-    OPENWEATHERMAP_LOCATION_URL = (
-        "https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}"
-    )  #!< Current weather by coordinates. Args: latitude, longitude, API key
-    OPENWEATHERMAP_FORECAST_URL = (
-        "https://api.openweathermap.org/data/2.5/forecast?lat={}&lon={}&appid={}"
-    )  #!< 5-day forecast (all 3-hour periods). Args: latitude, longitude, API key
-    STATION_LIST_URL = "https://tie.digitraffic.fi/api/weather/v1/stations"  #!< FMI station list with metadata and coordinates
-    WEATHER_STATION_URL = "https://tie.digitraffic.fi/api/weather/v1/stations/{}/data"  #!< FMI station observations. Args: station ID
+    STATION_LIST_URL = "https://tie.digitraffic.fi/api/weather/v1/stations"  #!< Digitraffic road weather station list with metadata and coordinates
+    WEATHER_STATION_URL = "https://tie.digitraffic.fi/api/weather/v1/stations/{}/data"  #!< Digitraffic station observations. Args: station ID
+    FMI_FORECAST_HOURLY_URL = (
+        "https://opendata.fmi.fi/wfs/eng?service=WFS&version=2.0.0&request=getFeature"
+        "&storedquery_id=fmi::forecast::edited::weather::scandinavia::point::simple"
+        "&latlon={},{}&timestep=180&starttime={}&endtime={}&parameters=Temperature,WeatherSymbol3"
+    )  #!< FMI edited Scandinavia 3-hourly point forecast (XML). Args: latitude, longitude, starttime (ISO 8601 UTC), endtime (ISO 8601 UTC)
+    FMI_FORECAST_DAILY_URL = (
+        "https://opendata.fmi.fi/wfs/eng?service=WFS&version=2.0.0&request=getFeature"
+        "&storedquery_id=fmi::forecast::edited::weather::scandinavia::point::simple"
+        "&latlon={},{}&timestep=1440&starttime={}&endtime={}&parameters=Temperature,WeatherSymbol3"
+    )  #!< FMI edited Scandinavia daily point forecast (XML). Args: latitude, longitude, starttime (ISO 8601 UTC), endtime (ISO 8601 UTC)
