@@ -498,18 +498,28 @@ const escapeHtml = esc;
 function forecastGoTo(i) {
   forecastCarousel.index = i;
   const items = forecastCarousel.items;
-  const today = new Date().toISOString().slice(0, 10);
   const weekdays = state.lang === 'en' ? WEEKDAYS_EN : state.lang === 'sv' ? WEEKDAYS_SV : WEEKDAYS_FI;
   dom.forecastItems.innerHTML = '';
   const page = items.slice(i, i + FORECAST_PAGE_SIZE);
   for (const f of page) {
-    let timeLabel = esc(f.time);
-    if (f.date) {
-      const day = new Date(f.date + 'T00:00:00').getDay();
-      timeLabel = `${weekdays[day]} ${timeLabel}`;
+    let timeLabel = '';
+    if (f.daily) {
+      if (f.date) {
+        const day = new Date(f.date + 'T00:00:00').getDay();
+        timeLabel = weekdays[day];
+      }
+    } else if (f.time) {
+      const startHour = parseInt(f.time.split(':')[0], 10);
+      const range = `${startHour}–${startHour + 3}`;
+      if (f.date) {
+        const day = new Date(f.date + 'T00:00:00').getDay();
+        timeLabel = `${weekdays[day]} ${range}`;
+      } else {
+        timeLabel = range;
+      }
     }
     const item = document.createElement('div');
-    item.className = 'forecast-item';
+    item.className = f.daily ? 'forecast-item forecast-item--daily' : 'forecast-item';
     item.innerHTML = `
       <span class="forecast-time">${timeLabel}</span>
       <span class="forecast-symbol">${esc(f.symbol) || '—'}</span>

@@ -167,14 +167,14 @@ classDiagram
 
 ## 4. HTTP API (Server Surface)
 
-| Method | Path                     | View                    | Purpose                                           |
-| ------ | ------------------------ | ----------------------- | ------------------------------------------------- |
-| GET    | `/`                      | `index`                 | Serves the SPA shell (`index.html`)               |
-| GET    | `/api/stations/`         | `api_stations`          | Returns the cached, filtered station catalogue    |
-| GET    | `/api/station/<int:id>/` | `api_station_data`      | Parsed observations + optional OWM forecast       |
-| GET    | `/api/settings/`         | `api_settings_get`      | Reads session settings                            |
-| POST   | `/api/settings/save/`    | `api_settings_save`     | Writes whitelisted session settings (CSRF-exempt) |
-| GET    | `/api/nearest-station/`  | `api_nearest_station`   | Returns the station closest to `?lat=…&lon=…`     |
+| Method | Path                     | View                  | Purpose                                           |
+| ------ | ------------------------ | --------------------- | ------------------------------------------------- |
+| GET    | `/`                      | `index`               | Serves the SPA shell (`index.html`)               |
+| GET    | `/api/stations/`         | `api_stations`        | Returns the cached, filtered station catalogue    |
+| GET    | `/api/station/<int:id>/` | `api_station_data`    | Parsed observations + optional OWM forecast       |
+| GET    | `/api/settings/`         | `api_settings_get`    | Reads session settings                            |
+| POST   | `/api/settings/save/`    | `api_settings_save`   | Writes whitelisted session settings (CSRF-exempt) |
+| GET    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to `?lat=…&lon=…`     |
 
 Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `follow_location`. Anything else in the POST body is silently dropped ([views.py](../weather/views.py)).
 
@@ -249,7 +249,8 @@ sequenceDiagram
             end
             OWM-->>WS: current weather (id → symbol)
             WS->>OWM: GET /forecast?lat&lon
-            OWM-->>WS: 3-hour forecast list (all periods, filtered to 3-day window)
+            OWM-->>WS: 3-hour forecast list (5-day window)
+            WS->>WS: split into today's 3-hourly entries + one daily summary per future date
         end
         WS-->>View: dict (station_name, temperature, ..., _next_update_at, forecast[])
         View->>SC: set(response, ttl = next_update_at - now + 30s)
@@ -458,16 +459,16 @@ The frontend displays weather camera images for each station. Camera logic lives
 
 ### 9.1 Module structure
 
-| Export | Description |
-| --- | --- |
-| `initCamera(state, dom, labels, setVisible)` | One-time setup; stores injected deps |
-| `showCameraForStation(lat, lon)` | Finds the nearest camera, fetches its presets, renders the carousel |
-| `carousel` | `{ index, slides }` — current carousel state |
-| `lightbox` | `{ index }` — current lightbox state |
-| `carouselGoTo(i)` | Navigate the carousel to slide `i` |
-| `lightboxGoTo(i)` | Navigate the lightbox to slide `i` |
-| `openLightbox(i)` | Open the lightbox at slide `i` |
-| `closeLightbox()` | Close the lightbox |
+| Export                                       | Description                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------- |
+| `initCamera(state, dom, labels, setVisible)` | One-time setup; stores injected deps                                |
+| `showCameraForStation(lat, lon)`             | Finds the nearest camera, fetches its presets, renders the carousel |
+| `carousel`                                   | `{ index, slides }` — current carousel state                        |
+| `lightbox`                                   | `{ index }` — current lightbox state                                |
+| `carouselGoTo(i)`                            | Navigate the carousel to slide `i`                                  |
+| `lightboxGoTo(i)`                            | Navigate the lightbox to slide `i`                                  |
+| `openLightbox(i)`                            | Open the lightbox at slide `i`                                      |
+| `closeLightbox()`                            | Close the lightbox                                                  |
 
 ### 9.2 Camera carousel
 

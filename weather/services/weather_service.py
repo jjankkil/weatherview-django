@@ -13,14 +13,13 @@ weather information for Finnish weather stations.
 import datetime
 
 import requests
-from requests.exceptions import RequestException
 from django.conf import settings
+from requests.exceptions import RequestException
 
-from .definitions import Urls
+from .definitions import Constants, Urls
 from .station_info import WeatherStationList
+from .ui_helpers import get_station_city, get_weather_symbol
 from .weather_station import WeatherStation
-from .ui_helpers import get_weather_symbol, get_station_city
-from .definitions import Constants
 
 
 class WeatherService:
@@ -193,8 +192,10 @@ class WeatherService:
                 - station_id: The requested station ID
                 - station_name: Formatted station name from station_list
                 - current_symbol: Weather condition symbol (empty if no OpenWeatherMap data)
-                - forecast: Array of forecast objects, each with time (HH:MM), date (YYYY-MM-DD),
-                  temperature (rounded °C string), and symbol
+                - forecast: Array of forecast objects. Objects for today carry
+                  time (HH:MM), date (YYYY-MM-DD), temperature (rounded °C string), and symbol.
+                  Objects for future days additionally carry daily (True) and have an empty
+                  time string; they represent a single daily summary (midday slot preferred).
                 - _next_update_at: datetime of the next expected Digitraffic observation
                   (internal; stripped by the view before sending the JSON response)
                 - Additional keys from station_data.to_dict(lang)
@@ -204,8 +205,13 @@ class WeatherService:
         @details
         - Validates station_id exists in station_list before querying FMI
         - Current weather symbol requires OPENWEATHER_API_KEY to be set in Django settings
-        - Forecast covers the full OWM 3-hour list up to (but not including) today + 3 days;
-          items with a malformed or missing dt_txt are skipped
+        - Forecast is built in two phases from the OWM 5-day/3-hour response:
+          1. Today's 3-hourly items: all entries where dt_txt date equals today, each
+             represented individually with their HH:MM time slot.
+          2. Future daily items: remaining dates (tomorrow onwards) are grouped by calendar
+             date; the 12:00 entry is chosen as the representative (first available entry
+             is used as fallback). Each group produces one item with daily=True.
+        - Items with a malformed or missing dt_txt are skipped
         - Temperature is converted from Kelvin to Celsius (rounded to nearest integer)
         - Time is extracted as HH:MM from the ISO 8601 dt_txt field
         - Gracefully handles missing OpenWeatherMap data by returning FMI-only response
@@ -235,23 +241,39 @@ class WeatherService:
             forecast_data = self.get_forecast(station_info.coordinates)
             forecasts = []
             today = datetime.date.today()
-            cutoff = today + datetime.timedelta(days=3)
+            future_days: dict[str, list] = {}
             for item in forecast_data.get("list", []):
                 dt_txt = item.get("dt_txt", "")
                 if len(dt_txt) < 10:
                     continue
                 item_date = datetime.date.fromisoformat(dt_txt[:10])
-                if item_date >= cutoff:
-                    break
                 time_part = dt_txt[11:16] if len(dt_txt) >= 16 else ""
                 temp_k = item.get("main", {}).get("temp", 0)
                 temp_c = round(temp_k - 273.15)
                 weather_id = item.get("weather", [{}])[0].get("id", 0)
+                if item_date == today:
+                    forecasts.append({
+                        "time": time_part,
+                        "date": dt_txt[:10],
+                        "temperature": f"{temp_c} °C",
+                        "symbol": get_weather_symbol(weather_id),
+                    })
+                elif item_date > today:
+                    date_str = dt_txt[:10]
+                    future_days.setdefault(date_str, []).append({
+                        "time": time_part,
+                        "temp_c": temp_c,
+                        "weather_id": weather_id,
+                    })
+            for date_str in sorted(future_days):
+                day_items = future_days[date_str]
+                rep = next((x for x in day_items if x["time"] == "12:00"), day_items[0])
                 forecasts.append({
-                    "time": time_part,
-                    "date": dt_txt[:10],
-                    "temperature": f"{temp_c} °C",
-                    "symbol": get_weather_symbol(weather_id),
+                    "time": "",
+                    "date": date_str,
+                    "temperature": f"{rep['temp_c']} °C",
+                    "symbol": get_weather_symbol(rep["weather_id"]),
+                    "daily": True,
                 })
             result["forecast"] = forecasts
 

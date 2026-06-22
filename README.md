@@ -14,7 +14,7 @@ Pick any of 400+ Finnish road weather stations and see current observations, FMI
 - 🌡️ Air temperature with FMI feels-like calculation
 - 💨 Wind speed (avg / max), direction with cardinal text
 - 💧 Humidity, dew point, road surface temperature, visibility, temperature rate of change, present weather
-- 🌦️ Short-range forecast (all 3-hour OWM periods up to 3 days ahead, with paginated carousel) + current weather symbol
+- 🌦️ Forecast carousel: 3-hourly slots for the rest of today (labeled e.g. _Ma 9–12_), followed by one daily summary per future day (up to 5 days from OWM); paginated in groups of three + current weather symbol
 - FI/SV/EN Finnish/Swedish/English UI toggle
 - 🔄 Server-driven auto-refresh: the frontend schedules its next fetch only when the server signals new data is due; no blind fallback polling
 - ⭐ 5-item MRU station list, persisted in browser `localStorage`
@@ -262,15 +262,15 @@ sudo systemctl restart weatherview
 
 ## Usage
 
-| Element | What it does |
-| --- | --- |
-| Station dropdown | Pick any station. Most-recently-used 5 are grouped at the top. |
-| 🔍 Search button | Open a search modal — type any part of a station name to filter and select it. |
-| 🌐 Top-right button | Toggle between Finnish, Swedish, and English. Labels, wind direction, and weather condition values all switch language. |
-| ⚙️ Top-right button | Open settings (camera toggle, use-my-location toggle). |
-| **Päivitä nyt** button | Force an immediate refresh. |
-| _Seuraava päivitys: N s_ | Countdown to the next automatic refresh (shown only when the server signals new data is due). |
-| Camera image | Click to open a lightbox. Navigate with prev/next buttons, arrow keys, or swipe. Toggle fullscreen with the fullscreen button. |
+| Element                  | What it does                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Station dropdown         | Pick any station. Most-recently-used 5 are grouped at the top.                                                                 |
+| 🔍 Search button         | Open a search modal — type any part of a station name to filter and select it.                                                 |
+| 🌐 Top-right button      | Toggle between Finnish, Swedish, and English. Labels, wind direction, and weather condition values all switch language.        |
+| ⚙️ Top-right button      | Open settings (camera toggle, use-my-location toggle).                                                                         |
+| **Päivitä nyt** button   | Force an immediate refresh.                                                                                                    |
+| _Seuraava päivitys: N s_ | Countdown to the next automatic refresh (shown only when the server signals new data is due).                                  |
+| Camera image             | Click to open a lightbox. Navigate with prev/next buttons, arrow keys, or swipe. Toggle fullscreen with the fullscreen button. |
 
 ---
 

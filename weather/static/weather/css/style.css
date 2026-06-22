@@ -375,6 +375,11 @@ html, body {
   gap: 6px;
 }
 
+.forecast-item--daily {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
 .forecast-time {
   font-size: 12px;
   font-weight: 700;
