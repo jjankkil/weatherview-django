@@ -191,11 +191,25 @@ function initEvents() {
   });
 }
 
+// ── Cookie consent banner ────────────────────────────────────
+const _CONSENT_KEY = 'cookie_consent_v1';
+
+function initCookieBanner() {
+  if (!dom.cookieBanner) return;
+  if (localStorage.getItem(_CONSENT_KEY)) return;
+  dom.cookieBanner.classList.remove('hidden');
+  dom.cookieBannerOk.addEventListener('click', () => {
+    localStorage.setItem(_CONSENT_KEY, '1');
+    dom.cookieBanner.classList.add('hidden');
+  }, { once: true });
+}
+
 // ── Bootstrap ────────────────────────────────────────────────
 async function init() {
   await fetchSettings();
   initCamera(state, dom, labels, setVisible);
   applyLabels();
+  initCookieBanner();
   initEvents();
 
   const stations = await fetchStations();

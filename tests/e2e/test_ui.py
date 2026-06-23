@@ -176,3 +176,26 @@ def test_settings_language_persists_across_reload(page: Page, base_url: str) -> 
 
     # Language should still be English after reload
     expect(page.locator("#app-title")).to_have_text("Road Weather")
+
+
+@pytest.mark.show_cookie_banner
+def test_cookie_banner_shows_on_first_visit_and_dismisses(page: Page, base_url: str) -> None:
+    """Cookie consent banner is visible on first visit and hidden after clicking Accept."""
+    _mock_external_apis(page)
+    page.goto(base_url)
+
+    banner = page.locator("#cookie-banner")
+    ok_btn = page.locator("#cookie-banner-ok")
+
+    # Banner must be visible on first visit (no prior consent in localStorage)
+    expect(banner).to_be_visible()
+    expect(ok_btn).to_be_visible()
+
+    # Clicking Accept hides the banner
+    ok_btn.click()
+    expect(banner).to_be_hidden()
+
+    # Reloading must not show the banner again (localStorage flag persists)
+    _mock_external_apis(page)
+    page.reload()
+    expect(banner).to_be_hidden()

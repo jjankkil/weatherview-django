@@ -12,7 +12,10 @@
       href="{% static 'weather/favicon.svg' %}"
     />
     <link rel="stylesheet" href="{% static 'weather/css/style.css' %}" />
-    <link rel="stylesheet" href="{% static 'weather/css/flag-icons-subset.css' %}" />
+    <link
+      rel="stylesheet"
+      href="{% static 'weather/css/flag-icons-subset.css' %}"
+    />
   </head>
   <body>
     <div id="app">
@@ -341,4 +344,20 @@
 
     <script type="module" src="{% static 'weather/js/app.js' %}"></script>
   </body>
+
+  <!-- Cookie consent banner (shown once; dismissed via localStorage) -->
+  <div
+    id="cookie-banner"
+    class="cookie-banner hidden"
+    role="dialog"
+    aria-live="polite"
+    aria-label="Cookie notice"
+  >
+    <p id="cookie-banner-text" class="cookie-banner-text"></p>
+    <button
+      id="cookie-banner-ok"
+      class="btn-primary cookie-banner-btn"
+      type="button"
+    ></button>
+  </div>
 </html>
