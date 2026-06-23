@@ -1,42 +1,35 @@
 # weatherview-django
 
-A browser-based road weather viewer for Finnish roads. Displays live observations from [Digitraffic](https://www.digitraffic.fi/) road weather stations together with a short-range forecast from [FMI open data](https://en.ilmatieteenlaitos.fi/open-data) (WFS API — no API key required).
+A browser-based road weather viewer for Finnish roads. It combines live observations from [Digitraffic](https://www.digitraffic.fi/) road weather stations with short-range forecasts from [FMI open data](https://en.ilmatieteenlaitos.fi/open-data) (WFS API, no API key required).
 
-Pick any of 400+ Finnish road weather stations and see current observations, FMI feels-like temperature, wind, visibility, present weather and a short-range forecast — all in the browser.
+Pick any of 400+ Finnish road weather stations and view current observations, FMI feels-like temperature, wind, visibility, present weather, and forecast data directly in the browser.
 
-<img src="docs/screenshot.png" alt="Screenshot of the Tiesää web UI" width="80%">
-
----
+<img src="docs/screenshot.png" alt="Screenshot of the Tiesaa web UI" width="80%">
 
 ## Features
 
-- 🛣️ More than 400 Finnish road weather stations (Digitraffic open data)
-- 🌡️ Air temperature with FMI feels-like calculation
-- 💨 Wind speed (avg / max), direction with cardinal text
-- 💧 Humidity, dew point, road surface temperature, visibility, temperature rate of change, present weather
-- 🌦️ Forecast carousel: 3-hourly slots for the rest of today (labeled e.g. _Ma 9–12_), followed by one daily summary per future day (up to 8 days); paginated in groups of three + current weather symbol from FMI WFS open data (no API key needed)
-- FI/SV/EN Finnish/Swedish/English UI toggle
-- 🔄 Server-driven auto-refresh: the frontend schedules its next fetch only when the server signals new data is due; no blind fallback polling
-- ⭐ 10-item MRU station list, persisted in browser `localStorage`
-- ⏳ Wait cursor + dimmed card while loading
-- 📍 Automatic nearest-station selection using the browser Geolocation API (on first visit or when "Use my location" is enabled in Settings)
-- 💾 Session-based settings (current station, language, camera visibility, follow-location)
-- Built-in IP-based rate limiting on the weather API endpoint (configurable)
-- 🚀 Station-list cache (5 min TTL) and per-station observation cache — backed by Redis in production; falls back to in-process LocMemCache for single-worker development (no Redis required)
+- More than 400 Finnish road weather stations (Digitraffic open data)
+- Air temperature with FMI feels-like calculation
+- Wind speed (avg / max), direction with cardinal text
+- Humidity, dew point, road surface temperature, visibility, temperature rate of change, and present weather
+- Forecast carousel with intra-day and multi-day outlook
+- Finnish/Swedish/English UI toggle
+- Server-driven refresh scheduling (no blind polling)
+- Session-based settings and client-side MRU station list
+- Built-in API rate limiting (configurable)
+- Redis-backed caching in production, LocMem fallback for local single-worker development
 
-No database required. Settings live in signed-cookie sessions; observation data is cached per station and refreshed only when new data is expected.
+No database is required. User preferences are stored in signed-cookie sessions.
 
----
-
-## Quick start
+## Quick Start
 
 ### Requirements
 
-- Python **3.11+** (tested on 3.13)
+- Python 3.11+ (tested on 3.13)
 - Internet access (Digitraffic + FMI open data)
-- **Redis** (optional for local dev — if `WVD_REDIS_URL` is not set the app uses an in-process cache and must run with a single Gunicorn worker; set `WVD_REDIS_URL` for multi-worker production deployments)
+- Redis (optional for local development)
 
-### Install & run
+### Install and run
 
 ```bash
 git clone https://github.com/jjankkil/weatherview-django
@@ -44,22 +37,19 @@ cd weatherview-django
 
 python -m venv .venv
 .venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # Linux / macOS
+# source .venv/bin/activate      # Linux / macOS
 
 pip install -r requirements.txt
-```
-
-Copy `.env.example` to `.env` and fill in the required values:
-
-```bash
 cp .env.example .env
 ```
+
+Set at least this value in `.env`:
 
 ```env
 WVD_SECRET_KEY=<generate with: python -c "from django.utils.crypto import get_random_string; print(get_random_string(50))">
 ```
 
-Then start the development server:
+Start the development server:
 
 ```bash
 # Windows PowerShell
@@ -72,323 +62,44 @@ startup.bat
 ./startup.sh
 ```
 
-Or manually:
-
-```bash
-WVD_SECRET_KEY=... python manage.py runserver
-```
-
-Then open <http://127.0.0.1:8000/> in your browser.
-
----
-
-## Deployment on Linux
-
-This section describes deploying the app on a Linux server (tested on Raspberry Pi 3, Debian Bookworm). The stack is **Gunicorn** behind **Nginx**.
-
-### 1. Install system dependencies
-
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3 python3-venv git nginx redis-server
-```
-
-### 2. Clone and install
-
-```bash
-cd /opt
-sudo mkdir weatherview && sudo chown $USER:$USER weatherview
-git clone https://github.com/jjankkil/weatherview-django weatherview
-cd weatherview
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 3. Configure environment
-
-The app **will not start** without `WVD_SECRET_KEY` set. Create `/opt/weatherview/.env` from the provided template:
-
-```bash
-cp /opt/weatherview/.env.example /opt/weatherview/.env
-```
-
-Then edit `/opt/weatherview/.env` and fill in the required values:
-
-```env
-# Required — the service will crash on startup if this is missing or left as the placeholder
-WVD_SECRET_KEY=<generate with: python3 -c "from django.utils.crypto import get_random_string; print(get_random_string(50))">
-
-# Recommended — restrict which hostnames Django accepts
-WVD_ALLOWED_HOSTS=<hostname-or-ip>,localhost
-
-# Optional — shown with defaults
-WEATHER_RATE_LIMIT=15/m
-WVD_SESSION_COOKIE_AGE=1209600
-WVD_SECURE_HSTS_SECONDS=31536000
-# WVD_REDIS_URL=redis://localhost:6379/0  # set to enable Redis (required for --workers > 1)
-```
-
-Restrict permissions so the key is not world-readable:
-
-```bash
-chmod 640 /opt/weatherview/.env
-```
-
-Collect static files (run with venv active):
-
-```bash
-source .venv/bin/activate
-python manage.py collectstatic --noinput
-```
-
-### 4. Systemd service
-
-Create `/etc/systemd/system/weatherview.service`:
-
-```ini
-[Unit]
-Description=WeatherView Django app
-After=network.target redis.service
-
-[Service]
-User=pi
-EnvironmentFile=/opt/weatherview/.env
-WorkingDirectory=/opt/weatherview
-ExecStart=/opt/weatherview/.venv/bin/gunicorn weatherview_project.wsgi:application --bind 127.0.0.1:8000 --workers 4
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now weatherview
-```
-
-Check that the service started without errors:
-
-```bash
-sudo systemctl status weatherview
-sudo journalctl -u weatherview -n 50
-```
-
-If you see `KeyError: 'WVD_SECRET_KEY'` in the journal, the `.env` file is missing, has wrong permissions, or the `EnvironmentFile=` path is incorrect.
-
-### 5. Nginx
-
-Nginx handles the HTTP→HTTPS redirect and terminates TLS. Django is configured to trust Nginx's `X-Forwarded-Proto` header, so no changes to `settings.py` are needed.
-
-Create `/etc/nginx/sites-available/weatherview`:
-
-```nginx
-server {
-    listen 80;
-    server_name _;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name _;
-
-    ssl_certificate     /etc/ssl/weatherview/cert.pem;
-    ssl_certificate_key /etc/ssl/weatherview/key.pem;
-
-    location /static/ {
-        alias /opt/weatherview/staticfiles/;
-    }
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/weatherview /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl restart nginx
-```
-
-### 6. HTTPS with a self-signed certificate
-
-HTTPS is required for the browser Geolocation API. For a private LAN, a self-signed certificate is sufficient.
-
-```bash
-sudo mkdir -p /etc/ssl/weatherview
-sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-  -keyout /etc/ssl/weatherview/key.pem \
-  -out /etc/ssl/weatherview/cert.pem \
-  -subj "/CN=<server-ip-or-hostname>" \
-  -addext "subjectAltName=IP:<server-ip>"
-```
-
-On first visit the browser will warn about the self-signed certificate — click **Advanced → Proceed** to accept it.
-
-### Updating
-
-After a `git pull`:
-
-```bash
-# If only Python files changed:
-sudo systemctl restart weatherview
-
-# If static files (CSS/JS) also changed:
-source /opt/weatherview/.venv/bin/activate
-python manage.py collectstatic --noinput
-sudo systemctl restart weatherview
-
-# Service status should show no errors:
-sudo systemctl status weatherview
-```
-
----
+Open <http://127.0.0.1:8000/> in your browser.
 
 ## Usage
 
-| Element                  | What it does                                                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Station dropdown         | Pick any station. Most-recently-used 10 are grouped at the top.                                                                |
-| 🔍 Search button         | Open a search modal — type any part of a station name to filter and select it.                                                 |
-| 🌐 Top-right button      | Toggle between Finnish, Swedish, and English. Labels, wind direction, and weather condition values all switch language.        |
-| ⚙️ Top-right button      | Open settings (camera toggle, use-my-location toggle).                                                                         |
-| **Päivitä nyt** button   | Force an immediate refresh.                                                                                                    |
-| _Seuraava päivitys: N s_ | Countdown to the next automatic refresh (shown only when the server signals new data is due).                                  |
-| Camera image             | Click to open a lightbox. Navigate with prev/next buttons, arrow keys, or swipe. Toggle fullscreen with the fullscreen button. |
+| Element                | What it does                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| Station dropdown       | Pick any station. Most-recently-used 10 are grouped at the top.                  |
+| Search button          | Open a search modal and filter stations by name.                                 |
+| Language button        | Toggle between Finnish, Swedish, and English.                                    |
+| Settings button        | Open settings (camera toggle, use-my-location toggle).                           |
+| Paivita nyt button     | Force an immediate refresh.                                                      |
+| Seuraava paivitys: N s | Countdown to the next automatic refresh when the server signals new data is due. |
+| Camera image           | Open a lightbox and navigate images with controls, keys, or swipe.               |
 
----
-
-## Architecture
-
-For a detailed technical architecture including component diagrams, sequence diagrams, domain models, and runtime behavior, see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-### Directory structure
-
-```text
-weatherview-django/
-├── manage.py
-├── requirements.txt
-├── weatherview_project/        # Django project (settings, root URLs)
-└── weather/
-    ├── views.py                # JSON API endpoints
-    ├── urls.py
-    ├── services/               # Domain logic (parsing, formulas, HTTP clients)
-    │   ├── definitions.py      # Constants, API URLs
-    │   ├── weather_service.py  # Digitraffic + FMI WFS HTTP client
-    │   ├── station_info.py     # Station metadata model
-    │   ├── weather_station.py  # Observation parsing + derived properties
-    │   ├── physics.py          # FMI feels-like temperature formula
-    │   ├── helpers.py          # Test-station filter
-    │   └── ui_helpers.py       # Symbols, wind direction, name formatting
-    ├── templates/weather/
-    │   └── index.html
-    ├── static/weather/
-    │   ├── css/style.css
-    │   ├── js/app.js           # Bootstrap + event wiring
-    │   ├── js/api.js           # fetch wrappers (stations, station data, settings)
-    │   ├── js/render.js        # DOM rendering, i18n labels, populateStations
-    │   ├── js/state.js         # global state object + MRU helpers
-    │   ├── js/geo.js           # geolocation / nearest-station selection
-    │   ├── js/camera.js        # weather camera carousel + lightbox
-    │   └── js/constants.js     # UI configuration constants
-    └── tests.py                # Offline test suite (mocked HTTP)
-scripts/
-└── smoke_test.py               # Live smoke test (hits real APIs)
-```
-
-### Data sources
-
-- **Digitraffic** road weather API (no key required)
-  - `GET /api/weather/v1/stations` — station list
-  - `GET /api/weather/v1/stations/{id}/data` — sensor observations
-- **FMI open data** WFS API (no key required)
-  - 3-hourly forecast for today
-  - Daily forecast for up to 8 future days
-
-### HTTP endpoints (server-side)
-
-| Method | Path                     | Purpose                                     |
-| ------ | ------------------------ | ------------------------------------------- |
-| GET    | `/`                      | Single-page app                             |
-| GET    | `/api/stations/`         | Cached station list                         |
-| GET    | `/api/station/<int:id>/` | Parsed observation + forecast for a station |
-| GET    | `/api/settings/`         | Read session settings                       |
-| POST   | `/api/settings/save/`    | Save session settings                       |
-| GET    | `/api/nearest-station/`  | Nearest station to `?lat=…&lon=…`           |
-
-### Stack
-
-- **Backend** — Django 6, `requests`, `python-dateutil`, `django-redis`
-- **Frontend** — Plain HTML + CSS + vanilla JS ES modules (no build step, no framework)
-- **Cache** — Redis (via `django-redis`) when `WVD_REDIS_URL` is set; LocMemCache otherwise
-- **Storage** — None for user data. Signed-cookie sessions for user prefs. `localStorage` for the client-side MRU list.
-
----
-
-## Development
-
-System check:
+## Testing
 
 ```bash
-python manage.py check
-```
-
-The dev server reloads automatically on file changes.
-
-### Documentation
-
-Generate HTML documentation from source code comments:
-
-```bash
-doxygen Doxyfile
-```
-
-This generates HTML documentation in `docs/doxygen/html/`. Open `docs/doxygen/html/index.html` in your browser to view it.
-
-**Requirements:** Doxygen must be installed. On Windows, install via [Doxygen](https://www.doxygen.nl/download.html) or via package manager. On macOS: `brew install doxygen`. On Linux or WSL: `apt-get install doxygen` (Debian/Ubuntu) or equivalent.
-
----
-
-### Testing
-
-Two test surfaces ship with the project:
-
-**Offline Django tests** — tests covering helpers, FMI physics, FMI symbol mapping, XML parsing, upstream error handling (5xx / 4xx / network failures), per-station caching logic, and all HTTP endpoints (mocked):
-
-```bash
+# Offline Django tests
 python manage.py test weather
-```
 
-These run in well under a second and require no network access.
-
-**Playwright browser tests** — four end-to-end tests driven by a headless Chromium browser (external API calls are mocked via `page.route()`):
-
-```bash
+# Playwright browser tests
 pip install -r requirements-dev.txt
 playwright install chromium
 pytest tests/e2e/
+
+# Live smoke test
+python scripts/smoke_test.py
 ```
 
-Coverage: page load + station list populates; station selection renders weather data; language switch updates all labels; language setting persists across a page reload.
+## Documentation
 
-**Live smoke test** — hits Digitraffic and FMI open data end-to-end (no API key needed):
-
-```bash
-python scripts/smoke_test.py          # quick check
-python scripts/smoke_test.py 23819    # specific station id
-```
-
----
+- [Architecture](docs/ARCHITECTURE.md) - component design, data flow, and runtime behavior
+- [Development Guide](docs/DEVELOPMENT.md) - local setup, checks, test workflows, and Doxygen usage
+- [Deployment Guide](docs/DEPLOYMENT.md) - Linux production deployment with Gunicorn, systemd, and Nginx
+- [Configuration Reference](docs/CONFIGURATION.md) - environment variables, defaults, and production notes
+- [Troubleshooting](docs/TROUBLESHOOTING.md) - common issues and practical fixes
 
 ## Credits
 
-- Road weather data: **Fintraffic / Digitraffic** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-- Forecast data: **Finnish Meteorological Institute (FMI)** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- Road weather data: **Fintraffic / Digitraffic** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- Forecast data: **Finnish Meteorological Institute (FMI)** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
