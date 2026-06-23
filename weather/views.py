@@ -182,7 +182,12 @@ def api_station_data(request, station_id: int):
       when serving from cache so the frontend always receives the accurate remaining wait time.
       The internal _next_update_at field is stripped before the response is sent to the client.
     """
-    ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')).split(',')[0].strip()
+    remote_addr = request.META.get('REMOTE_ADDR', '')
+    trusted_proxies: frozenset = getattr(settings, 'TRUSTED_PROXY_IPS', frozenset())
+    if trusted_proxies and remote_addr in trusted_proxies:
+        ip = request.META.get('HTTP_X_FORWARDED_FOR', remote_addr).split(',')[0].strip()
+    else:
+        ip = remote_addr
     if _is_rate_limited(ip):
         return JsonResponse({"error": "Too many requests"}, status=429)
 

@@ -31,6 +31,10 @@ ALLOWED_HOSTS = os.getenv("WVD_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 WEATHER_RATE_LIMIT = os.getenv("WEATHER_RATE_LIMIT", "15/m")  ##< Rate limit for weather API endpoint (per IP). Sliding-window format: "<count>/<unit>" where unit is s/m/h/d.
 
+TRUSTED_PROXY_IPS: frozenset = frozenset(  ##< Set of reverse-proxy IP addresses whose X-Forwarded-For header is trusted. Set via WVD_TRUSTED_PROXY_IPS (comma-separated). Empty by default (direct connections only).
+    filter(None, os.getenv("WVD_TRUSTED_PROXY_IPS", "").split(","))
+)
+
 INSTALLED_APPS = [  ##< Django applications enabled for this project.
     "django.contrib.sessions",
     "django.contrib.staticfiles",
