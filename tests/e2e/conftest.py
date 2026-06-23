@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import pytest
+from playwright.sync_api import Page
 
 _PORT = 18765
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -66,3 +67,15 @@ def _django_server():
 @pytest.fixture(scope="session")
 def base_url(_django_server):  # noqa: F811 — overrides pytest-playwright default
     return _django_server
+
+
+@pytest.fixture(autouse=True)
+def _auto_dismiss_cookie_banner(page: Page, request) -> None:
+    """Pre-set the cookie consent flag in localStorage for every test.
+
+    Tests that explicitly want to see the banner (e.g. the banner smoke test)
+    can opt out by marking with ``@pytest.mark.show_cookie_banner``.
+    """
+    if request.node.get_closest_marker("show_cookie_banner"):
+        return
+    page.add_init_script("localStorage.setItem('cookie_consent_v1', '1')")

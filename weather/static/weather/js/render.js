@@ -40,6 +40,8 @@ export const LABELS = {
     stationNoResults: 'Ei tuloksia',
     serviceError: 'Säätietopalvelu ei vastaa (virhe {code}). Yritetään uudelleen pian.',
     networkError: 'Verkkovirhe. Tarkista yhteytesi.',
+    cookieBanner: 'Tämä sivusto käyttää istuntoevästettä tallentamaan asetuksesi. Jatkamalla käyttöä hyväksyt evästeen käytön.',
+    cookieBannerOk: 'Hyväksy',
   },
   en: {
     appTitle: 'Road Weather',
@@ -77,6 +79,8 @@ export const LABELS = {
     stationNoResults: 'No results',
     serviceError: 'Weather data service unavailable (error {code}). Retrying soon.',
     networkError: 'Network error. Check your connection.',
+    cookieBanner: 'This site uses a session cookie to remember your settings. By continuing to use this site, you accept its use.',
+    cookieBannerOk: 'Accept',
   },
   sv: {
     appTitle: 'Vägväder',
@@ -114,6 +118,8 @@ export const LABELS = {
     stationNoResults: 'Inga resultat',
     serviceError: 'Väderdatatjänsten svarar inte (fel {code}). Försöker igen snart.',
     networkError: 'Nätverksfel. Kontrollera din anslutning.',
+    cookieBanner: 'Den här webbplatsen använder en sessionscookie för att spara dina inställningar. Genom att fortsätta godkänner du användningen.',
+    cookieBannerOk: 'Acceptera',
   },
 };
 
@@ -197,6 +203,9 @@ export const dom = {
   settingsCancel: $('settings-cancel'),
   settingsClose:  $('settings-close'),
   cameraPanel:    $('camera-panel'),
+  cookieBanner:   $('cookie-banner'),
+  cookieBannerText: $('cookie-banner-text'),
+  cookieBannerOk: $('cookie-banner-ok'),
   cameraTitle:    $('camera-title'),
   cameraDistance: $('camera-distance'),
   cameraUpdated:  $('camera-updated'),
@@ -250,6 +259,8 @@ export function applyLabels() {
   setText(dom.settingsSave, L.save);
   setText(dom.settingsCancel, L.cancel);
   setText(dom.settingsTitle, L.settingsTitle);
+  if (dom.cookieBannerText) setText(dom.cookieBannerText, L.cookieBanner);
+  if (dom.cookieBannerOk) setText(dom.cookieBannerOk, L.cookieBannerOk);
   document.documentElement.lang = state.lang;
 }
 
