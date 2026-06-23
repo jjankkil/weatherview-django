@@ -604,24 +604,24 @@ class ViewTests(SimpleTestCase):
 
     @patch("weather.services.weather_service.requests.get")
     def test_api_nearest_station_returns_closest(self, mock_get):
-        """@brief GET /api/nearest-station/ returns the station closest to the given coordinates."""
+        """@brief POST /api/nearest-station/ returns the station closest to the given coordinates."""
         mock_get.return_value = _mock_response(_STATION_LIST_PAYLOAD)
         # Station is at lat=65.0, lon=25.0 (from _STATION_LIST_PAYLOAD GeoJSON [lon, lat])
-        r = self._get("/api/nearest-station/?lat=65.0&lon=25.0")
+        r = self._post("/api/nearest-station/", data='{"lat": 65.0, "lon": 25.0}', content_type="application/json")
         self.assertEqual(r.status_code, 200)
         data = r.json()
         self.assertEqual(data["id"], 12345)
         self.assertEqual(data["formatted_name"], "Oulu, Ritaharju vt4")
 
     def test_api_nearest_station_missing_params(self):
-        """@brief GET /api/nearest-station/ without lat/lon returns HTTP 400."""
-        r = self._get("/api/nearest-station/")
+        """@brief POST /api/nearest-station/ without lat/lon returns HTTP 400."""
+        r = self._post("/api/nearest-station/", data='{}', content_type="application/json")
         self.assertEqual(r.status_code, 400)
         self.assertIn("error", r.json())
 
     def test_api_nearest_station_invalid_params(self):
-        """@brief GET /api/nearest-station/ with non-numeric lat/lon returns HTTP 400."""
-        r = self._get("/api/nearest-station/?lat=abc&lon=xyz")
+        """@brief POST /api/nearest-station/ with non-numeric lat/lon returns HTTP 400."""
+        r = self._post("/api/nearest-station/", data='{"lat": "abc", "lon": "xyz"}', content_type="application/json")
         self.assertEqual(r.status_code, 400)
 
     @patch("weather.services.weather_service.requests.get")
@@ -669,9 +669,9 @@ class ViewTests(SimpleTestCase):
 
     @patch("weather.services.weather_service.requests.get")
     def test_api_nearest_station_no_stations_returns_503(self, mock_get):
-        """@brief GET /api/nearest-station/ returns 503 when the station list is empty."""
+        """@brief POST /api/nearest-station/ returns 503 when the station list is empty."""
         mock_get.return_value = _mock_response({"features": []})
-        r = self._get("/api/nearest-station/?lat=60.0&lon=25.0")
+        r = self._post("/api/nearest-station/", data='{"lat": 60.0, "lon": 25.0}', content_type="application/json")
         self.assertEqual(r.status_code, 503)
         self.assertIn("error", r.json())
 
