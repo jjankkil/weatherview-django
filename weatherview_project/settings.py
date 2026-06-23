@@ -39,6 +39,7 @@ INSTALLED_APPS = [  ##< Django applications enabled for this project.
 
 MIDDLEWARE = [  ##< Ordered list of Django middleware classes.
     "django.middleware.security.SecurityMiddleware",
+    "weatherview_project.middleware.PermissionsPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -80,6 +81,7 @@ SECURE_HSTS_SECONDS = int(  ##< HSTS max-age in seconds. Set WVD_SECURE_HSTS_SEC
 SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG  ##< Apply HSTS policy to all subdomains in production.
 SECURE_HSTS_PRELOAD = not DEBUG  ##< Opt into HSTS preload list in production.
 SECURE_CONTENT_TYPE_NOSNIFF = True  ##< Prevent MIME-type sniffing by the browser.
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"  ##< Limit Referer header to origin only on cross-origin requests.
 
 _redis_url = os.getenv("WVD_REDIS_URL")  ##< Redis URL; None when WVD_REDIS_URL is unset (falls back to LocMemCache).
 
