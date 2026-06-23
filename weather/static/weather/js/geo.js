@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { dom } from './render.js';
-import { fetchWeather } from './api.js';
+import { fetchWeather, getCsrfToken } from './api.js';
 
 /**
  * @brief Select the nearest weather station using the browser Geolocation API.
@@ -46,7 +46,11 @@ export async function selectNearestByGeolocation(stations) {
   try {
     const { latitude, longitude } = position.coords;
     console.debug(`[geolocation] Got position: lat=${latitude}, lon=${longitude}`);
-    const r = await fetch(`/api/nearest-station/?lat=${latitude}&lon=${longitude}`);
+    const r = await fetch('/api/nearest-station/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+      body: JSON.stringify({ lat: latitude, lon: longitude }),
+    });
     if (!r.ok) throw new Error(`nearest-station responded with HTTP ${r.status}`);
     const nearest = await r.json();
     console.debug('[geolocation] Nearest station:', nearest.formatted_name);
