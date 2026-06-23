@@ -24,9 +24,15 @@ python -c "from django.utils.crypto import get_random_string; print(get_random_s
   - Per-IP API limit for weather endpoint.
   - Example default used in docs: `15/m`
 
+- `WVD_TRUSTED_PROXY_IPS`
+  - Comma-separated list of reverse-proxy IP addresses whose `X-Forwarded-For` header is trusted for per-IP rate limiting.
+  - **Required in production when behind Nginx or any reverse proxy** — without this, all users share one rate-limit bucket (the proxy's IP).
+  - Example: `WVD_TRUSTED_PROXY_IPS=127.0.0.1`
+  - Default: empty (no proxy trusted; `REMOTE_ADDR` is used directly).
+
 - `WVD_SESSION_COOKIE_AGE`
   - Session cookie lifetime in seconds.
-  - Example: `1209600` (14 days)
+  - Default: `604800` (7 days)
 
 - `WVD_SECURE_HSTS_SECONDS`
   - HSTS duration in seconds.
@@ -48,7 +54,8 @@ python -c "from django.utils.crypto import get_random_string; print(get_random_s
 WVD_SECRET_KEY=<your-secret>
 WVD_ALLOWED_HOSTS=localhost,127.0.0.1
 WEATHER_RATE_LIMIT=15/m
-WVD_SESSION_COOKIE_AGE=1209600
+WVD_SESSION_COOKIE_AGE=604800
 WVD_SECURE_HSTS_SECONDS=31536000
+WVD_TRUSTED_PROXY_IPS=127.0.0.1
 # WVD_REDIS_URL=redis://localhost:6379/0
 ```

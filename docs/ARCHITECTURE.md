@@ -27,7 +27,7 @@ flowchart LR
         GEOJS["geo.js<br/>(geolocation)"]
         CAM["camera.js<br/>(carousel, lightbox)"]
         CONST["constants.js<br/>(UI config)"]
-        LS[("localStorage<br/>MRU list")]
+        LS[("localStorage<br/>MRU list<br/>cookie consent")]
         GEO[("Browser<br/>Geolocation API")]
     end
 
@@ -84,6 +84,7 @@ Key source locations:
 
 - [weather/views.py](../weather/views.py) — JSON endpoints
 - [weather/urls.py](../weather/urls.py) — URL routing
+- [weatherview_project/middleware.py](../weatherview_project/middleware.py) — `PermissionsPolicyMiddleware` (adds `Permissions-Policy` response header)
 - [weather/services/weather_service.py](../weather/services/weather_service.py) — `HttpClient` (transport), `FmiXmlParser` (XML), `FmiForecastService` (forecast), `WeatherService` (orchestration)
 - [weather/services/station_info.py](../weather/services/station_info.py) — station catalogue model
 - [weather/services/weather_station.py](../weather/services/weather_station.py) — observation model + derived properties
