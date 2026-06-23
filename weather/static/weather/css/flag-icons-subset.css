@@ -1,0 +1,18 @@
+/*
+ * flag-icons subset – fi, se, gb only.
+ * Sourced from lipis/flag-icons@7.5.0 (MIT licence).
+ * Self-hosted to avoid third-party IP disclosure (GDPR Art. 4 / ePrivacy).
+ */
+
+.fi {
+  background-size: contain;
+  background-position: 50%;
+  background-repeat: no-repeat;
+  display: inline-block;
+  width: 1.333333em;
+  line-height: 1em;
+}
+
+.fi-fi { background-image: url(../flags/4x3/fi.svg); }
+.fi-se { background-image: url(../flags/4x3/se.svg); }
+.fi-gb { background-image: url(../flags/4x3/gb.svg); }
