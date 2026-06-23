@@ -35,7 +35,10 @@ Then set at least:
 ```env
 WVD_SECRET_KEY=<generate with: python3 -c "from django.utils.crypto import get_random_string; print(get_random_string(50))">
 WVD_ALLOWED_HOSTS=<hostname-or-ip>,localhost
+WVD_TRUSTED_PROXY_IPS=127.0.0.1
 ```
+
+> **Note:** `WVD_TRUSTED_PROXY_IPS=127.0.0.1` tells the rate limiter to trust the `X-Forwarded-For` header forwarded by Nginx (which connects from localhost). Without this, every request would be rate-limited against Nginx's IP instead of the real client IP.
 
 Restrict permissions on the env file:
 
@@ -116,6 +119,8 @@ server {
     }
 }
 ```
+
+> The Django app trusts `X-Forwarded-For` only from addresses listed in `WVD_TRUSTED_PROXY_IPS`. Since Nginx connects from `127.0.0.1`, set `WVD_TRUSTED_PROXY_IPS=127.0.0.1` in your `.env`.
 
 Enable the site:
 
