@@ -33,16 +33,25 @@ def _parse_rate(rate: str) -> tuple[int, int]:
     return int(count), window
 
 def _is_rate_limited(ip: str) -> bool:
-    """Return True if the given IP has exceeded WEATHER_RATE_LIMIT."""
-    count, window = _parse_rate(settings.WEATHER_RATE_LIMIT)
+    """Return True if the given IP has exceeded WEATHER_RATE_LIMIT.
+
+    Stores only a (request_count, window_start) tuple rather than a full
+    list of timestamps, satisfying GDPR data-minimisation (Art. 5(1)(c)).
+    Uses a fixed/tumbling window: the counter resets when the window expires.
+    """
+    limit, window = _parse_rate(settings.WEATHER_RATE_LIMIT)
     key = f'rl:{ip}'
     now = time.time()
-    history = cache.get(key, [])
-    history = [t for t in history if now - t < window]
-    if len(history) >= count:
-        return True
-    history.append(now)
-    cache.set(key, history, window)
+    stored = cache.get(key)
+    if stored is not None:
+        req_count, window_start = stored
+        if now - window_start < window:
+            if req_count >= limit:
+                return True
+            cache.set(key, (req_count + 1, window_start), window)
+            return False
+    # First request in this window (or window has expired)
+    cache.set(key, (1, now), window)
     return False
 
 
