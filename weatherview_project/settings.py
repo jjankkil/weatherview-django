@@ -10,7 +10,7 @@
 #  | WVD_SECRET_KEY | *(required)* | Django cryptographic secret key |
 #  | WVD_DEBUG | `False` | Enable Django debug mode |
 #  | WVD_ALLOWED_HOSTS | `*,localhost,127.0.0.1` | Comma-separated allowed host list |
-#  | WVD_SESSION_COOKIE_AGE | `1209600` (14 days) | Session lifetime in seconds |
+#  | WVD_SESSION_COOKIE_AGE | `604800` (7 days) | Session lifetime in seconds |
 #  | WVD_SECURE_HSTS_SECONDS | `31536000` (prod) / `0` (debug) | HSTS max-age |
 #  | WEATHER_RATE_LIMIT | `15/m` | Rate limit for weather API endpoint (per IP), e.g. "15/m" |
 #  | WVD_REDIS_URL | *(unset)* | Redis URL for caching. When unset: LocMemCache (single-worker dev). When set: RedisCache (multi-worker prod). |
@@ -70,7 +70,7 @@ WSGI_APPLICATION = "weatherview_project.wsgi.application"  ##< WSGI application 
 # No database needed — sessions stored in signed cookies
 SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"  ##< Use signed cookies for sessions; no database required.
 
-SESSION_COOKIE_AGE = int(os.getenv("WVD_SESSION_COOKIE_AGE", str(60 * 60 * 24 * 14)))  ##< Session lifetime in seconds (default 14 days). Set via WVD_SESSION_COOKIE_AGE.
+SESSION_COOKIE_AGE = int(os.getenv("WVD_SESSION_COOKIE_AGE", str(60 * 60 * 24 * 7)))  ##< Session lifetime in seconds (default 7 days). Set via WVD_SESSION_COOKIE_AGE.
 SESSION_COOKIE_SECURE = not DEBUG  ##< Transmit session cookie over HTTPS only (disabled in debug mode).
 SESSION_COOKIE_HTTPONLY = True  ##< Prevent JavaScript access to the session cookie.
 
