@@ -88,7 +88,7 @@ export function carouselGoTo(i) {
   }
 }
 
-function buildCarousel(presets, ts) {
+function buildCarousel(presets, ts, startIndex = 0) {
   carousel.slides = presets.map(p => ({ ...p, loaded: false }));
   carousel.index = 0;
   _dom.carouselTrack.innerHTML = '';
@@ -136,6 +136,9 @@ function buildCarousel(presets, ts) {
   _dom.cameraUpdated.textContent = first?.presentationName
     ? `${_labels().cameraDirection} ${first.presentationName}`
     : '';
+
+  const clampedIndex = Math.min(startIndex, presets.length - 1);
+  if (clampedIndex > 0) carouselGoTo(clampedIndex);
 }
 
 // ── Lightbox ─────────────────────────────────────────────────
@@ -221,5 +224,6 @@ export async function showCameraForStation(stationId) {
   } catch (_) { /* use presets without presentationName */ }
 
   if (presets.length === 0) return;
-  buildCarousel(presets, Date.now());
+  const previousIndex = carousel.index;
+  buildCarousel(presets, Date.now(), previousIndex);
 }
