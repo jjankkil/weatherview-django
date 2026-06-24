@@ -1,8 +1,8 @@
 # weatherview-django
 
-A browser-based road weather viewer for Finnish roads. It combines live observations from [Digitraffic](https://www.digitraffic.fi/) road weather stations with short-range forecasts from [FMI open data](https://en.ilmatieteenlaitos.fi/open-data) (WFS API, no API key required).
+A browser-based road weather viewer for Finnish roads. It combines live observations from [Digitraffic](https://www.digitraffic.fi/) road weather stations with short-range forecasts from [FMI open data](https://en.ilmatieteenlaitos.fi/open-data).
 
-Pick any of 400+ Finnish road weather stations and view current observations, FMI feels-like temperature, wind, visibility, present weather, and forecast data directly in the browser.
+Pick any of 400+ Finnish road weather stations and view current observations, FMI feels-like temperature, wind, visibility, present weather, and forecast data directly in the browser, along with the latest pictures of the weather camera closest to the selected weather station.
 
 <img src="docs/screenshot.png" alt="Screenshot of the Tiesaa web UI" width="80%">
 
@@ -25,7 +25,7 @@ No database is required. User preferences are stored in signed-cookie sessions.
 
 ### Requirements
 
-- Python 3.11+ (tested on 3.13)
+- Python 3.13+ (tested on 3.13)
 - Internet access (Digitraffic + FMI open data)
 - Redis (optional for local development)
 
