@@ -16,3 +16,7 @@ staticfiles/
 .idea/
 .claude/
 docs/doxygen/
+.coverage
+.tmp/
+/commit.txt
+/todo.txt

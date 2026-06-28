@@ -992,3 +992,280 @@ class ParseTimestampTests(SimpleTestCase):
         from weather.services.weather_station import _parse_timestamp
         result = _parse_timestamp("xXxNOT_A_DATE!@#")
         self.assertEqual(result.year, 1970)
+
+
+# ── Settings validation: show_history and history_hours ──────
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class SettingsHistoryValidationTests(SimpleTestCase):
+    """@brief Tests for _validate_settings_body() fields added with the history feature."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = Client(enforce_csrf_checks=False)
+        self._post = lambda path, **kw: self.client.post(path, secure=True, **kw)
+
+    def test_settings_save_show_history_non_bool_returns_400(self):
+        """@brief POST /api/settings/save/ with show_history as a non-boolean returns HTTP 400."""
+        r = self._post(
+            "/api/settings/save/",
+            data='{"show_history": "yes"}',
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("show_history", r.json()["error"])
+
+    def test_settings_save_history_hours_wrong_type_returns_400(self):
+        """@brief POST /api/settings/save/ with history_hours as a float/string returns HTTP 400."""
+        for val in ["12", 12.5, True]:
+            with self.subTest(val=val):
+                r = self._post(
+                    "/api/settings/save/",
+                    data=json.dumps({"history_hours": val}),
+                    content_type="application/json",
+                )
+                self.assertEqual(r.status_code, 400)
+                self.assertIn("history_hours", r.json()["error"])
+
+    def test_settings_save_history_hours_out_of_range_returns_400(self):
+        """@brief POST /api/settings/save/ with history_hours outside 1–24 returns HTTP 400."""
+        for val in [0, 25, -1]:
+            with self.subTest(val=val):
+                r = self._post(
+                    "/api/settings/save/",
+                    data=json.dumps({"history_hours": val}),
+                    content_type="application/json",
+                )
+                self.assertEqual(r.status_code, 400)
+                self.assertIn("history_hours", r.json()["error"])
+
+    def test_settings_save_show_history_and_history_hours_valid(self):
+        """@brief POST /api/settings/save/ with valid show_history and history_hours returns HTTP 200."""
+        r = self._post(
+            "/api/settings/save/",
+            data='{"show_history": false, "history_hours": 6}',
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {"ok": True})
+
+        r = self.client.get("/api/settings/", secure=True)
+        data = r.json()
+        self.assertFalse(data["show_history"])
+        self.assertEqual(data["history_hours"], 6)
+
+
+# ── WeatherService.get_station_history() ─────────────────────
+class StationHistoryServiceTests(SimpleTestCase):
+    """@brief Unit tests for WeatherService.get_station_history()."""
+
+    def _make_history_payload(self, temp_value=None, precip_value=None):
+        """Build a history payload with optional temperature and/or precipitation values.
+
+        Uses a timestamp 30 minutes ago so it falls within any reasonable window.
+        """
+        now = datetime.datetime.now(dt_timezone.utc)
+        ts = (now - datetime.timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        values = []
+        if temp_value is not None:
+            values.append({"id": 1, "measuredTime": ts, "value": temp_value})
+        if precip_value is not None:
+            values.append({"id": 23, "measuredTime": ts, "value": precip_value})
+        return {"values": values}
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_returns_correct_structure(self, mock_get):
+        """@brief get_station_history() always returns temp_series, precip_series, and has_precipitation."""
+        mock_get.return_value = _mock_response(self._make_history_payload(temp_value=10.5))
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=1)
+        self.assertIn("temp_series", result)
+        self.assertIn("precip_series", result)
+        self.assertIn("has_precipitation", result)
+        self.assertIsInstance(result["temp_series"], list)
+        self.assertIsInstance(result["precip_series"], list)
+        self.assertIsInstance(result["has_precipitation"], bool)
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_temp_series_entries_have_correct_shape(self, mock_get):
+        """@brief Each temp_series entry has 'time' (ISO 8601) and 'temperature' (float or None)."""
+        mock_get.return_value = _mock_response(self._make_history_payload(temp_value=12.3))
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=1)
+        self.assertTrue(len(result["temp_series"]) > 0)
+        for entry in result["temp_series"]:
+            self.assertIn("time", entry)
+            self.assertIn("temperature", entry)
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_valid_temp_value_appears_in_series(self, mock_get):
+        """@brief A valid temperature reading within the window appears as a non-None bucket.
+
+        Uses hours=24 so the 24-hour series window safely covers a measurement
+        taken 30 minutes ago. With hours=1 the series starts at ceil(now-1h) to
+        the next full hour boundary, which can exclude a reading at now-30min
+        whose bucket falls before that boundary.
+        """
+        mock_get.return_value = _mock_response(self._make_history_payload(temp_value=15.3))
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=24)
+        non_null_temps = [e["temperature"] for e in result["temp_series"] if e["temperature"] is not None]
+        self.assertEqual(len(non_null_temps), 1)
+        self.assertEqual(non_null_temps[0], 15.3)
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_has_precipitation_true_when_precip_sensor_present(self, mock_get):
+        """@brief has_precipitation is True when the station reports any precipitation sensor value."""
+        mock_get.return_value = _mock_response(self._make_history_payload(temp_value=5.0, precip_value=0.5))
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=1)
+        self.assertTrue(result["has_precipitation"])
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_has_precipitation_false_when_no_precip_sensor(self, mock_get):
+        """@brief has_precipitation is False when only temperature sensor data is present."""
+        mock_get.return_value = _mock_response(self._make_history_payload(temp_value=5.0))
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=1)
+        self.assertFalse(result["has_precipitation"])
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_http_error_returns_empty_series(self, mock_get):
+        """@brief get_station_history() returns empty series and sets has_error on upstream failure."""
+        mock_get.return_value = _mock_http_error_response(503)
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=1)
+        self.assertEqual(result, {"temp_series": [], "precip_series": [], "has_precipitation": False})
+        self.assertTrue(svc.has_error)
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_filters_invalid_sensor_values(self, mock_get):
+        """@brief Sensor readings at or below INVALID_VALUE (-999) are excluded from all buckets."""
+        from weather.services.definitions import Constants
+        now = datetime.datetime.now(dt_timezone.utc)
+        ts = (now - datetime.timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        payload = {"values": [
+            {"id": 1, "measuredTime": ts, "value": Constants.INVALID_VALUE},
+            {"id": 1, "measuredTime": ts, "value": Constants.INVALID_VALUE - 1},
+        ]}
+        mock_get.return_value = _mock_response(payload)
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=1)
+        # No valid readings → every bucket should be None
+        for entry in result["temp_series"]:
+            self.assertIsNone(entry["temperature"])
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_empty_values_list_returns_empty_series(self, mock_get):
+        """@brief An empty values list from the API produces series with all-None buckets."""
+        mock_get.return_value = _mock_response({"values": []})
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=1)
+        self.assertFalse(svc.has_error)
+        self.assertFalse(result["has_precipitation"])
+        for entry in result["temp_series"]:
+            self.assertIsNone(entry["temperature"])
+
+
+# ── api_station_history view ──────────────────────────────────
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class StationHistoryViewTests(SimpleTestCase):
+    """@brief Integration tests for the GET /api/station-history/<id>/ endpoint."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = Client(enforce_csrf_checks=False)
+        self._get = lambda path, **kw: self.client.get(path, secure=True, **kw)
+
+    @patch("weather.views.WeatherService")
+    def test_api_station_history_returns_correct_keys(self, MockWeatherService):
+        """@brief GET /api/station-history/<id>/ returns temp_series, precip_series, has_precipitation."""
+        mock_svc = MockWeatherService.return_value
+        mock_svc.has_error = False
+        mock_svc.get_station_history.return_value = {
+            "temp_series": [{"time": "2026-05-12T12:00:00Z", "temperature": 10.5}],
+            "precip_series": [{"time": "2026-05-12T12:00:00Z", "precipitation": None}],
+            "has_precipitation": False,
+        }
+        r = self._get("/api/station-history/12345/")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("temp_series", data)
+        self.assertIn("precip_series", data)
+        self.assertIn("has_precipitation", data)
+
+    @patch("weather.views.WeatherService")
+    def test_api_station_history_upstream_error_returns_502(self, MockWeatherService):
+        """@brief GET /api/station-history/<id>/ returns HTTP 502 when the upstream service fails."""
+        mock_svc = MockWeatherService.return_value
+        mock_svc.has_error = True
+        mock_svc.error_message = "Upstream service error (HTTP 503)"
+        mock_svc.get_station_history.return_value = {
+            "temp_series": [], "precip_series": [], "has_precipitation": False,
+        }
+        r = self._get("/api/station-history/12345/")
+        self.assertEqual(r.status_code, 502)
+        self.assertIn("error", r.json())
+
+    @patch("weather.views.WeatherService")
+    def test_api_station_history_cached_response_served_without_second_service_call(self, MockWeatherService):
+        """@brief Second request within the 5-minute TTL is served from cache; service not called again."""
+        mock_svc = MockWeatherService.return_value
+        mock_svc.has_error = False
+        mock_svc.get_station_history.return_value = {
+            "temp_series": [], "precip_series": [], "has_precipitation": False,
+        }
+        self._get("/api/station-history/12345/")
+        self._get("/api/station-history/12345/")
+        self.assertEqual(mock_svc.get_station_history.call_count, 1)
+
+    @override_settings(WEATHER_RATE_LIMIT="2/m")
+    @patch("weather.views.WeatherService")
+    def test_api_station_history_rate_limited(self, MockWeatherService):
+        """@brief Third request from the same IP within the rate-limit window returns HTTP 429."""
+        mock_svc = MockWeatherService.return_value
+        mock_svc.has_error = False
+        mock_svc.get_station_history.return_value = {
+            "temp_series": [], "precip_series": [], "has_precipitation": False,
+        }
+        self._get("/api/station-history/12345/")  # 1st — ok
+        self._get("/api/station-history/12345/")  # 2nd — ok (from cache, but rate counter increments)
+        r = self._get("/api/station-history/12345/")  # 3rd — rate limited
+        self.assertEqual(r.status_code, 429)
+        self.assertIn("error", r.json())
+
+    @patch("weather.views.WeatherService")
+    def test_api_station_history_uses_history_hours_from_session(self, MockWeatherService):
+        """@brief get_station_history() is called with the history_hours value from user session."""
+        mock_svc = MockWeatherService.return_value
+        mock_svc.has_error = False
+        mock_svc.get_station_history.return_value = {
+            "temp_series": [], "precip_series": [], "has_precipitation": False,
+        }
+        with patch("weather.views._get_settings", return_value={**{"history_hours": 3}}):
+            self._get("/api/station-history/12345/")
+        mock_svc.get_station_history.assert_called_once_with(12345, 3)
+
+
+# ── PermissionsPolicyMiddleware ───────────────────────────────
+class MiddlewareTests(SimpleTestCase):
+    """@brief Tests for PermissionsPolicyMiddleware header injection."""
+
+    def setUp(self):
+        self.client = Client(enforce_csrf_checks=False)
+
+    def test_permissions_policy_header_present_on_index(self):
+        """@brief Every response includes a Permissions-Policy header."""
+        r = self.client.get("/", secure=True)
+        self.assertIn("Permissions-Policy", r)
+
+    def test_permissions_policy_header_allows_geolocation_self(self):
+        """@brief Permissions-Policy header grants geolocation to self (required for nearest-station feature)."""
+        r = self.client.get("/", secure=True)
+        self.assertIn("geolocation=(self)", r["Permissions-Policy"])
+
+    def test_permissions_policy_header_disables_camera_and_microphone(self):
+        """@brief Permissions-Policy header explicitly disables camera and microphone."""
+        r = self.client.get("/", secure=True)
+        policy = r["Permissions-Policy"]
+        self.assertIn("camera=()", policy)
+        self.assertIn("microphone=()", policy)

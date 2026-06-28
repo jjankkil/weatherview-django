@@ -69,6 +69,18 @@ _WEATHER_1002 = {
     "temperature_raw": 5.0,
 }
 
+_HISTORY_DATA = {
+    "temp_series": [
+        {"time": "2026-06-28T10:00:00Z", "temperature": 12.5},
+        {"time": "2026-06-28T10:10:00Z", "temperature": 13.0},
+        {"time": "2026-06-28T10:20:00Z", "temperature": 13.5},
+    ],
+    "precip_series": [
+        {"time": "2026-06-28T10:00:00Z", "precipitation": None},
+    ],
+    "has_precipitation": False,
+}
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -96,6 +108,12 @@ def _mock_external_apis(page: Page) -> None:
             _fulfill_json(route, _WEATHER_1001)
 
     page.route("**/api/station/**", _station_handler)
+
+
+def _mock_all_apis(page: Page) -> None:
+    """Register route mocks for all external endpoints including station history."""
+    _mock_external_apis(page)
+    page.route("**/api/station-history/**", lambda route: _fulfill_json(route, _HISTORY_DATA))
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -199,3 +217,56 @@ def test_cookie_banner_shows_on_first_visit_and_dismisses(page: Page, base_url: 
     _mock_external_apis(page)
     page.reload()
     expect(banner).to_be_hidden()
+
+
+def test_trend_section_appears_when_history_data_is_available(page: Page, base_url: str) -> None:
+    """Trend section becomes visible after selecting a station and receiving history data."""
+    _mock_all_apis(page)
+    page.goto(base_url)
+
+    select = page.locator("#station-select")
+    expect(select.locator("option[value='1001']")).to_be_attached()
+    select.select_option(value="1001")
+
+    # Weather card renders first, then history arrives asynchronously
+    expect(page.locator("#weather-card")).to_be_visible()
+    expect(page.locator("#trend-section")).to_be_visible()
+
+
+def test_settings_modal_has_show_history_and_history_hours_controls(page: Page, base_url: str) -> None:
+    """Settings modal contains the show_history toggle and history_hours input."""
+    _mock_external_apis(page)
+    page.goto(base_url)
+
+    # Wait for stations to load — confirms JS event listeners are attached
+    expect(page.locator("#station-select")).to_contain_text("Helsinki / Pasila")
+
+    page.locator("#settings-btn").click()
+    expect(page.locator("#settings-modal")).to_be_visible()
+
+    # New history controls must be present with correct defaults
+    expect(page.locator("#show-history-toggle")).to_be_visible()
+    expect(page.locator("#show-history-toggle")).to_be_checked()
+    expect(page.locator("#history-hours-input")).to_be_visible()
+    expect(page.locator("#history-hours-input")).to_have_value("12")
+
+
+def test_disabling_show_history_hides_trend_section(page: Page, base_url: str) -> None:
+    """Unchecking show_history in settings and saving removes the trend section."""
+    _mock_all_apis(page)
+    page.goto(base_url)
+
+    # Select a station to trigger history fetch → trend section becomes visible
+    select = page.locator("#station-select")
+    expect(select.locator("option[value='1001']")).to_be_attached()
+    select.select_option(value="1001")
+    expect(page.locator("#trend-section")).to_be_visible()
+
+    # Open settings, uncheck show_history, save
+    page.locator("#settings-btn").click()
+    expect(page.locator("#settings-modal")).to_be_visible()
+    page.locator("#show-history-toggle").uncheck()
+    page.locator("#settings-save").click()
+
+    # Trend section must now be hidden
+    expect(page.locator("#trend-section")).to_be_hidden()
