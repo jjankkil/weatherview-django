@@ -5,6 +5,7 @@ import {
   dom, labels, showError, hideError, renderWeather, populateStations,
 } from './render.js';
 import { showCameraForStation } from './camera.js';
+import { renderTrendChart, destroyTrendChart } from './trend_chart.js';
 
 // ── CSRF token ───────────────────────────────────────────────
 export function getCsrfToken() {
@@ -26,6 +27,8 @@ export async function fetchSettings() {
     if (data.current_station_id) state.currentStationId = data.current_station_id;
     if (data.show_camera !== undefined) state.showCamera = data.show_camera;
     if (data.follow_location !== undefined) state.followLocation = data.follow_location;
+    if (data.show_history !== undefined) state.showHistory = data.show_history;
+    if (data.history_hours !== undefined) state.historyHours = data.history_hours;
   } catch (_) { /* ignore */ }
 }
 
@@ -54,6 +57,22 @@ export async function fetchStations() {
   } catch (e) {
     showError(String(e));
     return [];
+  }
+}
+
+// ── Station history API ──────────────────────────────────────
+/**
+ * @brief Fetch hourly-bucketed temperature and precipitation history for a station.
+ * @param {number} stationId  Digitraffic station ID.
+ * @return {Promise<Object|null>}  History payload, or null on error.
+ */
+export async function fetchStationHistory(stationId) {
+  try {
+    const r = await fetch(`/api/station-history/${stationId}/`);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
   }
 }
 
@@ -118,6 +137,11 @@ export async function fetchWeather(stationId, fresh = false) {
     if (state.stations.length > 0) populateStations(state.stations);
     startNextUpdateDisplay(data.seconds_until_next_update || 0);
     if (state.showCamera) showCameraForStation(stationId);
+    if (state.showHistory) {
+      fetchStationHistory(stationId).then(renderTrendChart);
+    } else {
+      destroyTrendChart();
+    }
   } catch (e) {
     showError(labels().networkError);
   } finally {

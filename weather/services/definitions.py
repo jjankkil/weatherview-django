@@ -57,6 +57,7 @@ class Urls:
     """
     STATION_LIST_URL = "https://tie.digitraffic.fi/api/weather/v1/stations"  #!< Digitraffic road weather station list with metadata and coordinates
     WEATHER_STATION_URL = "https://tie.digitraffic.fi/api/weather/v1/stations/{}/data"  #!< Digitraffic station observations. Args: station ID
+    WEATHER_STATION_HISTORY_URL = "https://tie.digitraffic.fi/api/weather/v1/stations/{}/data/history"  #!< Digitraffic station sensor value history (max 24h). Args: station ID
     FMI_FORECAST_HOURLY_URL = (
         "https://opendata.fmi.fi/wfs/eng?service=WFS&version=2.0.0&request=getFeature"
         "&storedquery_id=fmi::forecast::edited::weather::scandinavia::point::simple"

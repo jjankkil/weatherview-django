@@ -86,6 +86,8 @@ _DEFAULT_SETTINGS = {  #!< Default settings applied to all sessions
     "language": "fi",  #!< Display language ("fi" for Finnish, "sv" for Swedish, "en" for English)
     "show_camera": True,  #!< Whether to display weather camera images (default: enabled)
     "follow_location": False,  #!< Whether to always use geolocation to select the nearest station
+    "show_history": True,  #!< Whether to display the temperature/precipitation history trend chart
+    "history_hours": 12,  #!< History window length in hours (1–24)
 }
 
 
@@ -335,6 +337,16 @@ def _validate_settings_body(body: dict) -> tuple[dict, str | None]:
         if not isinstance(val, str) or len(val) > _MAX_STATION_NAME_LEN:
             return {}, "current_station_name must be a string \u2264 200 characters"
         cleaned["current_station_name"] = val
+    if "show_history" in body:
+        val = body["show_history"]
+        if not isinstance(val, bool):
+            return {}, "show_history must be a boolean"
+        cleaned["show_history"] = val
+    if "history_hours" in body:
+        val = body["history_hours"]
+        if isinstance(val, bool) or not isinstance(val, int) or not (1 <= val <= 24):
+            return {}, "history_hours must be an integer between 1 and 24"
+        cleaned["history_hours"] = val
     return cleaned, None
 
 
@@ -385,3 +397,51 @@ def api_settings_save(request):
     settings.update(cleaned)
     _save_settings(request, settings)
     return JsonResponse({"ok": True})
+
+
+_HISTORY_CACHE_KEY = 'station_history_v2:{}:{}'  #!< Per-station history cache key (v2 = separate temp/precip series)
+
+
+@require_http_methods(["GET"])
+def api_station_history(request, station_id: int):
+    """Fetch bucketed temperature and precipitation history for a station.
+
+    HTTP GET endpoint returning up to 24 hours of hourly-averaged sensor data
+    from the Digitraffic history API. The window length is taken from the user's
+    session setting ``history_hours`` (default: 24).
+
+    @param request    Django request object with user session.
+    @param station_id Digitraffic station ID from URL path parameter.
+    @return JsonResponse with structure:
+            - history: list of {time (ISO 8601 UTC), temperature (°C|null), precipitation (mm/h|null)}
+            - has_precipitation: bool – true if any non-zero precipitation reading was found
+            On error (502): {"error": "<message>"}
+    @details
+    - HTTP method: GET only
+    - Cache TTL: 5 minutes (300 s)
+    - Rate-limited with the same IP-based limiter as the station data endpoint
+    """
+    remote_addr = request.META.get('REMOTE_ADDR', '')
+    trusted_proxies: frozenset = getattr(settings, 'TRUSTED_PROXY_IPS', frozenset())
+    if trusted_proxies and remote_addr in trusted_proxies:
+        ip = request.META.get('HTTP_X_FORWARDED_FOR', remote_addr).split(',')[0].strip()
+    else:
+        ip = remote_addr
+    if _is_rate_limited(ip):
+        return JsonResponse({"error": "Too many requests"}, status=429)
+
+    user_settings = _get_settings(request)
+    hours = user_settings.get("history_hours", 24)
+
+    cache_key = _HISTORY_CACHE_KEY.format(station_id, hours)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    service = WeatherService()
+    data = service.get_station_history(station_id, hours)
+    if service.has_error:
+        return JsonResponse({"error": service.error_message}, status=502)
+
+    cache.set(cache_key, data, 300)
+    return JsonResponse(data)

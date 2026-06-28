@@ -230,33 +230,44 @@
         </main>
         <!-- .weather-card -->
 
-        <!-- Camera panel -->
-        <aside id="camera-panel" class="camera-panel hidden">
-          <div class="camera-header">
-            <span id="camera-title" class="camera-title"></span>
-            <span id="camera-distance" class="camera-distance"></span>
-          </div>
-          <div class="carousel">
-            <button
-              class="carousel-btn carousel-btn--prev"
-              id="carousel-prev"
-              aria-label="Previous"
-            >
-              &#8249;
-            </button>
-            <div class="carousel-track-wrap">
-              <div class="carousel-track" id="carousel-track"></div>
+        <!-- Camera panel + history chart (right column) -->
+        <div class="camera-column">
+          <aside id="camera-panel" class="camera-panel hidden">
+            <div class="camera-header">
+              <span id="camera-title" class="camera-title"></span>
+              <span id="camera-distance" class="camera-distance"></span>
             </div>
-            <button
-              class="carousel-btn carousel-btn--next"
-              id="carousel-next"
-              aria-label="Next"
-            >
-              &#8250;
-            </button>
-          </div>
-          <div id="camera-updated" class="camera-updated"></div>
-        </aside>
+            <div class="carousel">
+              <button
+                class="carousel-btn carousel-btn--prev"
+                id="carousel-prev"
+                aria-label="Previous"
+              >
+                &#8249;
+              </button>
+              <div class="carousel-track-wrap">
+                <div class="carousel-track" id="carousel-track"></div>
+              </div>
+              <button
+                class="carousel-btn carousel-btn--next"
+                id="carousel-next"
+                aria-label="Next"
+              >
+                &#8250;
+              </button>
+            </div>
+            <div id="camera-updated" class="camera-updated"></div>
+          </aside>
+
+          <!-- Temperature / precipitation history trend chart -->
+          <section id="trend-section" class="trend-section hidden">
+            <div class="trend-header" id="trend-header"></div>
+            <div class="trend-canvas-wrap">
+              <canvas id="trend-chart"></canvas>
+            </div>
+          </section>
+        </div>
+        <!-- .camera-column -->
       </div>
       <!-- .content-layout -->
 
@@ -334,6 +345,27 @@
             >
             <input id="follow-location-toggle" type="checkbox" />
           </div>
+
+          <div class="camera-setting">
+            <label id="show-history-label" for="show-history-toggle"
+              >Näytä lämpötilahistoria:</label
+            >
+            <input id="show-history-toggle" type="checkbox" checked />
+          </div>
+
+          <div class="history-hours-setting">
+            <label id="history-hours-label" for="history-hours-input"
+              >Historian pituus (tuntia):</label
+            >
+            <input
+              id="history-hours-input"
+              type="number"
+              min="1"
+              max="24"
+              value="12"
+              class="history-hours-input"
+            />
+          </div>
         </div>
         <div class="modal-footer">
           <button id="settings-save" class="btn-primary">Tallenna</button>
@@ -342,6 +374,8 @@
       </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script type="module" src="{% static 'weather/js/app.js' %}"></script>
   </body>
 

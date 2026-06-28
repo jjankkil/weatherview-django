@@ -28,6 +28,11 @@ export const LABELS = {
     settingsTitle: 'Asetukset',
     cameraLabel: 'Näytä kelikameroiden kuvat:',
     followLocationLabel: 'Käytä sijaintiasi aseman valintaan:',
+    showHistoryLabel: 'Näytä lämpötilahistoria:',
+    historyHoursLabel: 'Historian pituus (tuntia):',
+    historyTitle: 'Historia',
+    tempLegend: 'Lämpötila °C',
+    precipLegend: 'Sade mm/h',
     cameraLoaded: 'Ladattu',
     cameraDirection: 'Suunta',
     cameraImageUnavailable: 'Kuva ei saatavilla',
@@ -67,6 +72,13 @@ export const LABELS = {
     settingsTitle: 'Settings',
     cameraLabel: 'Show weather camera images:',
     followLocationLabel: 'Use my location to select station:',
+    showHistoryLabel: 'Show temperature history:',
+    historyHoursLabel: 'History length (hours):',
+    historyTitle: 'History',
+    tempLegend: 'Temperature °C',
+    precipLegend: 'Rainfall mm/h',
+    tempLegend: 'Temperature °C',
+    precipLegend: 'Rainfall mm/h',
     cameraLoaded: 'Loaded',
     cameraDirection: 'Direction',
     cameraImageUnavailable: 'Image unavailable',
@@ -106,6 +118,11 @@ export const LABELS = {
     settingsTitle: 'Inställningar',
     cameraLabel: 'Visa vägkamerabilder:',
     followLocationLabel: 'Använd min plats för stationsval:',
+    showHistoryLabel: 'Visa temperaturhistorik:',
+    historyHoursLabel: 'Historiklängd (timmar):',
+    historyTitle: 'Historia',
+    tempLegend: 'Temperatur °C',
+    precipLegend: 'Nederbörd mm/h',
     cameraLoaded: 'Laddad',
     cameraDirection: 'Riktning',
     cameraImageUnavailable: 'Bild ej tillgänglig',
@@ -199,6 +216,11 @@ export const dom = {
   cameraLabel:         $('camera-label'),
   followLocationToggle: $('follow-location-toggle'),
   followLocationLabel:  $('follow-location-label'),
+  showHistoryToggle:   $('show-history-toggle'),
+  showHistoryLabel:    $('show-history-label'),
+  historyHoursInput:   $('history-hours-input'),
+  historyHoursLabel:   $('history-hours-label'),
+  trendHeader:         $('trend-header'),
   settingsSave:   $('settings-save'),
   settingsCancel: $('settings-cancel'),
   settingsClose:  $('settings-close'),
@@ -256,6 +278,9 @@ export function applyLabels() {
   syncLangDropdown();
   setText(dom.cameraLabel, L.cameraLabel);
   setText(dom.followLocationLabel, L.followLocationLabel);
+  setText(dom.showHistoryLabel, L.showHistoryLabel);
+  setText(dom.historyHoursLabel, L.historyHoursLabel);
+  if (dom.trendHeader) setText(dom.trendHeader, L.historyTitle);
   setText(dom.settingsSave, L.save);
   setText(dom.settingsCancel, L.cancel);
   setText(dom.settingsTitle, L.settingsTitle);
@@ -492,6 +517,9 @@ export function renderStationSearchResults(selectFn) {
 export function openSettings() {
   dom.cameraToggle.checked = state.showCamera;
   dom.followLocationToggle.checked = state.followLocation;
+  dom.showHistoryToggle.checked = state.showHistory;
+  dom.historyHoursInput.value = state.historyHours;
+  dom.historyHoursInput.disabled = !state.showHistory;
   setVisible(dom.settingsModal, true);
 }
 

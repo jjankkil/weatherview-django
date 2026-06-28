@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 import requests
 from requests.exceptions import RequestException
 
-from .definitions import Constants, Urls
+from .definitions import Constants, Formats, Urls
 from .fmi_symbols import get_fmi_weather_symbol
 from .station_info import WeatherStationList
 from .weather_station import WeatherStation
@@ -292,8 +292,103 @@ class WeatherService(HttpClient):
             station.parse(raw)
         return station
 
-    def build_full_weather_response(
-        self,
+    _HISTORY_SENSOR_TEMP = 1     #!< Sensor ID for air temperature (ILMA, °C)
+    _HISTORY_SENSOR_PRECIP = 23  #!< Sensor ID for precipitation intensity (SADE_INTENSITEETTI, mm/h)
+    _TEMP_BUCKET_MINUTES = 10    #!< Temperature bucket size in minutes (fine-grained curve)
+
+    def get_station_history(self, station_id: int, hours: int = 24) -> dict:
+        """Fetch and bucket sensor history for temperature and precipitation.
+
+        Queries the Digitraffic history endpoint for up to @p hours of sensor data.
+        Temperature is bucketed at @ref _TEMP_BUCKET_MINUTES (10 min) for a smooth line;
+        precipitation is bucketed hourly so the chart renders exactly one bar per hour.
+
+        @param station_id  Digitraffic station identifier.
+        @param hours       Window length in hours (1–24; clamped internally).
+        @return dict with keys:
+                - temp_series:  list of {time (ISO 8601 UTC), temperature (float|None)}
+                - precip_series: list of {time (ISO 8601 UTC), precipitation (float|None)}
+                - has_precipitation: True if the station has a precipitation sensor
+                  (regardless of whether it rained during the window)
+        @details
+        - Temperature sensor: ID 1 (ILMA, °C), averaged per 10-minute bucket.
+        - Precipitation sensor: ID 23 (SADE_INTENSITEETTI, mm/h), averaged per hourly bucket.
+        - Missing or invalid sensor values (≤ Constants.INVALID_VALUE) are excluded.
+        - Returns empty series on HTTP error; has_error/error_message reflect the failure.
+        """
+        hours = max(1, min(24, hours))
+        now = datetime.datetime.now(datetime.timezone.utc)
+        from_dt = now - datetime.timedelta(hours=hours)
+        url = (
+            Urls.WEATHER_STATION_HISTORY_URL.format(station_id)
+            + f"?from={from_dt.strftime(Formats.UTC_TIMESTAMP_FORMAT)}"
+            + f"&to={now.strftime(Formats.UTC_TIMESTAMP_FORMAT)}"
+        )
+        raw = self._get(url)
+        if self.has_error or not raw:
+            return {"temp_series": [], "precip_series": [], "has_precipitation": False}
+
+        temp_sums: dict[str, float] = {}
+        temp_counts: dict[str, int] = {}
+        precip_sums: dict[str, float] = {}
+        precip_counts: dict[str, int] = {}
+
+        for v in raw.get("values", []):
+            sensor_id = v.get("id")
+            if sensor_id not in (self._HISTORY_SENSOR_TEMP, self._HISTORY_SENSOR_PRECIP):
+                continue
+            val = v.get("value")
+            if val is None or val <= Constants.INVALID_VALUE:
+                continue
+            try:
+                t = datetime.datetime.fromisoformat(v["measuredTime"].replace("Z", "+00:00"))
+            except (KeyError, ValueError):
+                continue
+            if t < from_dt:
+                continue
+            if sensor_id == self._HISTORY_SENSOR_TEMP:
+                m = (t.minute // self._TEMP_BUCKET_MINUTES) * self._TEMP_BUCKET_MINUTES
+                bucket = t.replace(minute=m, second=0, microsecond=0).strftime(Formats.UTC_TIMESTAMP_FORMAT)
+                temp_sums[bucket] = temp_sums.get(bucket, 0.0) + val
+                temp_counts[bucket] = temp_counts.get(bucket, 0) + 1
+            else:
+                bucket = t.replace(minute=0, second=0, microsecond=0).strftime(Formats.UTC_TIMESTAMP_FORMAT)
+                precip_sums[bucket] = precip_sums.get(bucket, 0.0) + val
+                precip_counts[bucket] = precip_counts.get(bucket, 0) + 1
+
+        # Ceil from_dt to the next complete hour so both series start at a clean
+        # hour boundary with no empty leading stub (e.g. from_dt=03:35 → start=04:00).
+        hour_start = from_dt.replace(minute=0, second=0, microsecond=0)
+        if from_dt.minute or from_dt.second or from_dt.microsecond:
+            hour_start += datetime.timedelta(hours=1)
+
+        # Build temperature series at 10-minute resolution
+        temp_series: list[dict] = []
+        step = datetime.timedelta(minutes=self._TEMP_BUCKET_MINUTES)
+        current = hour_start
+        while current <= now:
+            bucket = current.strftime(Formats.UTC_TIMESTAMP_FORMAT)
+            temp = round(temp_sums[bucket] / temp_counts[bucket], 1) if bucket in temp_counts else None
+            temp_series.append({"time": bucket, "temperature": temp})
+            current += step
+
+        # Build precipitation series at hourly resolution
+        precip_series: list[dict] = []
+        current = hour_start
+        while current <= now:
+            bucket = current.strftime(Formats.UTC_TIMESTAMP_FORMAT)
+            precip = round(precip_sums[bucket] / precip_counts[bucket], 2) if bucket in precip_counts else None
+            precip_series.append({"time": bucket, "precipitation": precip})
+            current += datetime.timedelta(hours=1)
+
+        has_precipitation = bool(precip_counts)  # True whenever the station has a precip sensor
+        return {
+            "temp_series": temp_series,
+            "precip_series": precip_series,
+            "has_precipitation": has_precipitation,
+        }
+
+    def build_full_weather_response(        self,
         station_id: int,
         station_list: WeatherStationList,
         lang: str = "fi",

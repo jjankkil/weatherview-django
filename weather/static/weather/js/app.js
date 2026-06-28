@@ -14,9 +14,10 @@ import {
 } from './render.js';
 import {
   fetchSettings, saveSettings, fetchStations, fetchWeather,
-  clearCountdown, startNextUpdateDisplay,
+  fetchStationHistory, clearCountdown, startNextUpdateDisplay,
 } from './api.js';
 import { selectNearestByGeolocation } from './geo.js';
+import { renderTrendChart, destroyTrendChart } from './trend_chart.js';
 
 // ── Station selection ────────────────────────────────────────
 function selectStation(id, name) {
@@ -32,15 +33,24 @@ function selectStation(id, name) {
 async function onSettingsSave() {
   const showCamera = dom.cameraToggle.checked;
   const followLocation = dom.followLocationToggle.checked;
+  const showHistory = dom.showHistoryToggle.checked;
+  const historyHours = Math.min(24, Math.max(1, parseInt(dom.historyHoursInput.value, 10) || 24));
   state.showCamera = showCamera;
   state.followLocation = followLocation;
-  await saveSettings({ show_camera: showCamera, follow_location: followLocation });
+  state.showHistory = showHistory;
+  state.historyHours = historyHours;
+  await saveSettings({ show_camera: showCamera, follow_location: followLocation, show_history: showHistory, history_hours: historyHours });
   closeSettings();
   setVisible(dom.cameraPanel, showCamera);
   if (followLocation) {
     await selectNearestByGeolocation(state.stations);
   } else if (state.currentStationId) {
     fetchWeather(state.currentStationId);
+    if (showHistory) {
+      fetchStationHistory(state.currentStationId).then(renderTrendChart);
+    } else {
+      destroyTrendChart();
+    }
   }
 }
 
@@ -171,6 +181,10 @@ function initEvents() {
   dom.settingsClose.addEventListener('click', closeSettings);
   dom.settingsCancel.addEventListener('click', closeSettings);
   dom.settingsSave.addEventListener('click', onSettingsSave);
+
+  dom.showHistoryToggle.addEventListener('change', () => {
+    dom.historyHoursInput.disabled = !dom.showHistoryToggle.checked;
+  });
 
   dom.settingsModal.addEventListener('click', e => {
     if (e.target === dom.settingsModal) closeSettings();

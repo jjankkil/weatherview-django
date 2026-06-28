@@ -21,6 +21,8 @@ export const state = {
   currentStationId: null,
   showCamera: true,
   followLocation: false,
+  showHistory: true,
+  historyHours: 12,
   refreshTimer: null,
   countdownTimer: null,
   refreshDueAt: null,
