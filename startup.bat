@@ -28,6 +28,9 @@ set WVD_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
 REM Set session cookie age (optional, defaults to 14 days)
 set WVD_SESSION_COOKIE_AGE=1209600
 
+REM Ensure a stale Redis setting from the current shell is not reused
+set "WVD_REDIS_URL="
+
 REM Load secrets from .env if present
 if exist ".env" (
     for /f "usebackq tokens=1,* delims==" %%a in (".env") do (

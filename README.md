@@ -13,6 +13,7 @@ Pick any of 400+ Finnish road weather stations and view current observations, FM
 - Wind speed (avg / max), direction with cardinal text
 - Humidity, dew point, road surface temperature, visibility, temperature rate of change, and present weather
 - Forecast carousel with intra-day and multi-day outlook
+- Trend history chart with configurable history window
 - Finnish/Swedish/English UI toggle
 - Server-driven refresh scheduling (no blind polling)
 - Session-based settings and client-side MRU station list
@@ -25,7 +26,7 @@ No database is required. User preferences are stored in signed-cookie sessions.
 
 ### Requirements
 
-- Python 3.13+ (tested on 3.13)
+- Python 3.12+ (Django 6 requires 3.12+; 3.13 tested)
 - Internet access (Digitraffic + FMI open data)
 - Redis (optional for local development)
 
@@ -38,6 +39,12 @@ cd weatherview-django
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 # source .venv/bin/activate      # Linux / macOS
+
+# On Raspberry Pi OS Bookworm, the default `python3` is often 3.11, which is too old for Django 6.
+# Use Python 3.12 or 3.13 instead, for example:
+# python3.12 -m venv .venv
+# or
+# python3.13 -m venv .venv
 
 pip install -r requirements.txt
 cp .env.example .env

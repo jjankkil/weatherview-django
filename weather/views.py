@@ -256,7 +256,7 @@ def api_settings_get(request):
     return JsonResponse(_get_settings(request))
 
 
-@require_http_methods(["POST"])
+@require_http_methods(["GET", "POST"])
 def api_nearest_station(request):
     """Return the station closest to the given WGS84 coordinates.
 
@@ -277,12 +277,23 @@ def api_nearest_station(request):
     - Requires HTTPS (or localhost) in the browser; the Geolocation API that
       supplies the coordinates is only available in secure contexts
     """
-    try:
-        body = json.loads(request.body)
-        lat = float(body['lat'])
-        lon = float(body['lon'])
-    except (json.JSONDecodeError, UnicodeDecodeError, KeyError, ValueError, TypeError):
-        return JsonResponse({"error": "lat and lon are required numeric fields in the JSON body"}, status=400)
+    if request.method == "GET":
+        lat = request.GET.get("lat")
+        lon = request.GET.get("lon")
+        if lat is None or lon is None:
+            return JsonResponse({"error": "lat and lon are required numeric fields"}, status=400)
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except (ValueError, TypeError):
+            return JsonResponse({"error": "lat and lon must be numeric"}, status=400)
+    else:
+        try:
+            body = json.loads(request.body)
+            lat = float(body['lat'])
+            lon = float(body['lon'])
+        except (json.JSONDecodeError, UnicodeDecodeError, KeyError, ValueError, TypeError):
+            return JsonResponse({"error": "lat and lon are required numeric fields in the JSON body"}, status=400)
 
     station_list = _get_station_list()
     stations = station_list.get_name_list()

@@ -48,6 +48,17 @@ python -c "from django.utils.crypto import get_random_string; print(get_random_s
 - Production multi-worker deployments should use Redis.
 - Without `WVD_REDIS_URL`, run single-worker app instances to avoid process-local cache divergence.
 
+## Session settings
+
+The app also stores a small set of user preferences in signed-cookie sessions:
+
+- `language` (`fi`, `sv`, or `en`)
+- `show_camera` (boolean)
+- `follow_location` (boolean)
+- `show_history` (boolean)
+- `history_hours` (integer from 1 to 24)
+- `current_station_id` / `current_station_name`
+
 ## Example .env
 
 ```env
