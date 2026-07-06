@@ -8,8 +8,8 @@ This document describes the structure and runtime behavior of `weatherview-djang
 
 `weatherview-django` is a Django-served single-page application that visualizes live road weather observations from **Fintraffic / Digitraffic** and a short-range forecast from **FMI open data** (WFS API — no API key required). The server is stateless apart from:
 
-- a **signed-cookie session** holding per-user UI preferences, and
-- an **in-process cache** holding the parsed station list (TTL ≈ 5 min), per-station observation responses (TTL derived from each station's update cadence), and IP rate-limit counters.
+- a **signed-cookie session** holding per-user UI preferences such as language, camera visibility, geolocation follow mode, and history-chart settings, and
+- an **in-process cache** holding the parsed station list (TTL ≈ 5 min), per-station observation responses (TTL derived from each station's update cadence), per-station history responses, and IP rate-limit counters.
 
 No database is used. All observation data is fetched on demand and parsed in memory.
 
@@ -202,11 +202,12 @@ classDiagram
 | GET    | `/`                      | `index`               | Serves the SPA shell (`index.html`)                  |
 | GET    | `/api/stations/`         | `api_stations`        | Returns the cached, filtered station catalogue       |
 | GET    | `/api/station/<int:id>/` | `api_station_data`    | Parsed observations + FMI WFS forecast               |
+| GET    | `/api/station-history/<int:id>/` | `api_station_history` | Returns bucketed temperature/precipitation history for a station |
 | GET    | `/api/settings/`         | `api_settings_get`    | Reads session settings                               |
 | POST   | `/api/settings/save/`    | `api_settings_save`   | Writes whitelisted session settings (CSRF-protected) |
-| GET    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to `?lat=…&lon=…`        |
+| GET/POST    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to query params or a JSON body with `lat`/`lon` |
 
-Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `follow_location`. Anything else in the POST body is silently dropped ([views.py](../weather/views.py)).
+Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `follow_location`, `show_history`, and `history_hours`. Only those keys are accepted; other keys are ignored and invalid values return HTTP 400 ([views.py](../weather/views.py)).
 
 ---
 

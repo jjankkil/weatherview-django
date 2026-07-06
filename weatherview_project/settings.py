@@ -23,6 +23,44 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent  ##< Absolute path to the repository root.
 
+
+def load_environment_from_dotenv(env_path: Path | None = None) -> dict[str, str]:
+    """Load environment variables from a .env file when present.
+
+    Values from the shell are preserved; only missing variables are populated from the file.
+    """
+    resolved_path = env_path or BASE_DIR / ".env"
+    if not resolved_path.exists():
+        return {}
+
+    loaded_values: dict[str, str] = {}
+    for raw_line in resolved_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if value.startswith(("'", '"')) and value.endswith(("'", '"')) and len(value) >= 2:
+            value = value[1:-1]
+
+        if " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+
+        os.environ.setdefault(key, value)
+        loaded_values[key] = value
+
+    return loaded_values
+
+
+load_environment_from_dotenv()
+
 SECRET_KEY = os.environ["WVD_SECRET_KEY"]  ##< Django cryptographic secret key. Set via WVD_SECRET_KEY env var (required).
 
 DEBUG = os.getenv("WVD_DEBUG", "False") == "True"  ##< Enable Django debug mode. Set WVD_DEBUG=True to activate.
@@ -60,6 +98,7 @@ TEMPLATES = [  ##< Django template engine configuration.
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
+                "django.template.context_processors.csrf",
             ],
         },
     },
@@ -87,26 +126,31 @@ SECURE_HSTS_PRELOAD = not DEBUG  ##< Opt into HSTS preload list in production.
 SECURE_CONTENT_TYPE_NOSNIFF = True  ##< Prevent MIME-type sniffing by the browser.
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"  ##< Limit Referer header to origin only on cross-origin requests.
 
-_redis_url = os.getenv("WVD_REDIS_URL")  ##< Redis URL; None when WVD_REDIS_URL is unset (falls back to LocMemCache).
-
-if _redis_url:  ##< Use Redis when WVD_REDIS_URL is set (multi-worker production).
-    CACHES = {
-        "default": {
-            "BACKEND": "django_redis.cache.RedisCache",
-            "LOCATION": _redis_url,
-            "OPTIONS": {
-                "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            },
-            "TIMEOUT": 300,  # station list cached for 5 minutes
+def build_cache_settings(redis_url: str | None) -> dict:
+    """Build a cache configuration that degrades safely when Redis is unavailable."""
+    if redis_url:
+        return {
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": redis_url,
+                "OPTIONS": {
+                    "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                    "IGNORE_EXCEPTIONS": True,
+                },
+                "TIMEOUT": 300,  # station list cached for 5 minutes
+            }
         }
-    }
-else:  ##< Fall back to LocMemCache for single-worker development (no Redis required).
-    CACHES = {
+
+    return {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "TIMEOUT": 300,  # station list cached for 5 minutes
         }
     }
+
+
+_redis_url = os.getenv("WVD_REDIS_URL")  ##< Redis URL; None when WVD_REDIS_URL is unset (falls back to LocMemCache).
+CACHES = build_cache_settings(_redis_url)
 
 LANGUAGE_CODE = "fi"  ##< Default language code (Finnish).
 TIME_ZONE = "Europe/Helsinki"  ##< Default time zone for the application.

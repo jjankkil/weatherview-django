@@ -24,7 +24,10 @@ that actually hits Digitraffic and the FMI open data WFS is in
 
 import datetime
 import json
+import os
+import tempfile
 from datetime import timezone as dt_timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import requests as requests_lib
@@ -39,6 +42,9 @@ from weather.services.ui_helpers import (format_station_name,
                                          wind_direction_as_text)
 from weather.services.weather_service import WeatherService
 from weather.services.weather_station import WeatherStation
+
+os.environ.setdefault("WVD_SECRET_KEY", "test-secret-key")
+from weatherview_project import settings as settings_module
 
 # ── FMI WFS XML fixtures ────────────────────────────────────
 _FMI_HOURLY_XML = """\
@@ -216,6 +222,57 @@ def _mock_http_error_response(status_code):
 
 
 # ── Pure helpers ────────────────────────────────────────────
+class CacheSettingsTests(SimpleTestCase):
+    """Regression tests for local cache fallback behavior."""
+
+    def test_csrf_context_processor_is_enabled(self):
+        """Templates should expose the CSRF token to the frontend JS."""
+        processors = settings_module.TEMPLATES[0]["OPTIONS"]["context_processors"]
+        self.assertIn("django.template.context_processors.csrf", processors)
+
+    def test_load_environment_from_dotenv(self):
+        """A .env file should populate missing environment variables."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / ".env"
+            env_path.write_text("TEST_ENV_VAR=from-dotenv\n", encoding="utf-8")
+            loaded = settings_module.load_environment_from_dotenv(env_path)
+            self.assertEqual(loaded["TEST_ENV_VAR"], "from-dotenv")
+            self.assertEqual(os.environ["TEST_ENV_VAR"], "from-dotenv")
+            os.environ.pop("TEST_ENV_VAR", None)
+
+    def test_empty_redis_url_uses_locmem_cache(self):
+        """An empty Redis URL should use the local-memory cache backend."""
+        config = settings_module.build_cache_settings("")
+        self.assertEqual(
+            config["default"]["BACKEND"],
+            "django.core.cache.backends.locmem.LocMemCache",
+        )
+
+    def test_redis_url_uses_django_redis_backend(self):
+        """A configured Redis URL should use django-redis with exception suppression."""
+        config = settings_module.build_cache_settings("redis://localhost:6379/0")
+        self.assertEqual(config["default"]["BACKEND"], "django_redis.cache.RedisCache")
+        self.assertTrue(config["default"]["OPTIONS"]["IGNORE_EXCEPTIONS"])
+
+
+class ApiViewTests(SimpleTestCase):
+    """Regression tests for API compatibility with remote browsers."""
+
+    def test_api_nearest_station_accepts_get_query_params(self):
+        """The nearest-station endpoint should also work for GET requests from older clients."""
+        station_list = MagicMock()
+        station_list.get_name_list.return_value = [
+            {"id": 1, "name": "foo", "formatted_name": "Foo", "lat": 0.0, "lon": 0.0},
+            {"id": 2, "name": "bar", "formatted_name": "Bar", "lat": 1.0, "lon": 1.0},
+        ]
+
+        with patch("weather.views._get_station_list", return_value=station_list):
+            response = self.client.get("/api/nearest-station/", {"lat": 0.0, "lon": 0.0})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["id"], 1)
+
+
 class HelpersTests(SimpleTestCase):
     """@brief Tests for pure helper and UI utility functions."""
 

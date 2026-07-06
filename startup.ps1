@@ -25,6 +25,9 @@ $env:WVD_ALLOWED_HOSTS = "localhost,127.0.0.1,0.0.0.0"
 # Set session cookie age (optional, defaults to 14 days)
 $env:WVD_SESSION_COOKIE_AGE = "1209600"
 
+# Ensure a stale Redis setting from the current shell is not reused
+Remove-Item Env:WVD_REDIS_URL -ErrorAction SilentlyContinue
+
 # Load secrets from .env if present
 if (Test-Path ".env") {
     Get-Content ".env" | ForEach-Object {
