@@ -38,6 +38,9 @@ if exist ".env" (
     )
 )
 
+REM Ensure static assets are available for deployment and local previews
+python manage.py collectstatic --noinput --verbosity 0
+
 REM Run the development server
 python manage.py runserver 0.0.0.0:8000
 

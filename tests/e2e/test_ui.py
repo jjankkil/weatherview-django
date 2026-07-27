@@ -225,7 +225,11 @@ def test_trend_section_appears_when_history_data_is_available(page: Page, base_u
     page.goto(base_url)
 
     select = page.locator("#station-select")
-    expect(select.locator("option[value='1001']")).to_be_attached()
+    # Geolocation fallback auto-selects a station on load, which pushes it to the
+    # MRU list; populateStations then renders it in both the "Recent" and "All
+    # stations" optgroups, so a value-based option locator is non-unique. Wait for
+    # the station name instead (matches test_settings_language_persists_across_reload).
+    expect(select).to_contain_text("Helsinki / Pasila")
     select.select_option(value="1001")
 
     # Weather card renders first, then history arrives asynchronously
@@ -256,9 +260,12 @@ def test_disabling_show_history_hides_trend_section(page: Page, base_url: str) -
     _mock_all_apis(page)
     page.goto(base_url)
 
-    # Select a station to trigger history fetch → trend section becomes visible
+    # Select a station to trigger history fetch → trend section becomes visible.
+    # Use to_contain_text (not a value-based option locator): geolocation fallback
+    # auto-selects a station and populateStations renders it in both the "Recent"
+    # and "All stations" optgroups, making option[value='1001'] non-unique.
     select = page.locator("#station-select")
-    expect(select.locator("option[value='1001']")).to_be_attached()
+    expect(select).to_contain_text("Helsinki / Pasila")
     select.select_option(value="1001")
     expect(page.locator("#trend-section")).to_be_visible()
 

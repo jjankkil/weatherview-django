@@ -22,6 +22,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+> **Important — build the venv in place.** Always create `.venv` directly inside
+> `/opt/weatherview` (as above). Never build it in another directory and copy or
+> move it here. Virtual environments are **not relocatable**: console scripts such
+> as `gunicorn` have the interpreter's absolute path baked into their shebang, so a
+> moved venv makes systemd fail to start Gunicorn with `status=203/EXEC`. If you
+> ever see that error, rebuild the venv in place: `rm -rf .venv && python3 -m venv
+> .venv && source .venv/bin/activate && pip install -r requirements.txt`.
+
 ## 3. Configure environment
 
 Create `/opt/weatherview/.env` from the template:
@@ -147,16 +155,23 @@ Browsers will show a warning on first access. Accept the certificate for local/p
 
 ## Updating after changes
 
-After pulling updates:
+After pulling updates, **always run `collectstatic`** — do not skip it. Nginx serves
+CSS/JS from `/opt/weatherview/staticfiles/` (see the `location /static/` block above),
+which is populated only by `collectstatic`. The `index.html` template is rendered live
+by Django, but the static assets are not: if you restart Gunicorn without re-collecting,
+Nginx keeps serving the **old** CSS/JS against the **new** HTML, which silently breaks
+layout and client-side rendering (e.g. missing forecast/history, panels no longer shown
+side by side). When in doubt, run it — it is cheap and idempotent.
 
 ```bash
-# If only Python files changed
-sudo systemctl restart weatherview
-
-# If static assets changed
-source /opt/weatherview/.venv/bin/activate
+cd /opt/weatherview
+source .venv/bin/activate
+git pull
+pip install -r requirements.txt      # in case dependencies changed
 python manage.py collectstatic --noinput
 sudo systemctl restart weatherview
-
 sudo systemctl status weatherview
 ```
+
+After deploying, hard-refresh the browser (Ctrl+Shift+R) once — static filenames are not
+content-hashed, so browsers may otherwise serve a cached copy of the old CSS/JS.
