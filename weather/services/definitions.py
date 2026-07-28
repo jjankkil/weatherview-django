@@ -61,10 +61,10 @@ class Urls:
     FMI_FORECAST_HOURLY_URL = (
         "https://opendata.fmi.fi/wfs/eng?service=WFS&version=2.0.0&request=getFeature"
         "&storedquery_id=fmi::forecast::edited::weather::scandinavia::point::simple"
-        "&latlon={},{}&timestep=180&starttime={}&endtime={}&parameters=Temperature,WeatherSymbol3"
-    )  #!< FMI edited Scandinavia 3-hourly point forecast (XML). Args: latitude, longitude, starttime (ISO 8601 UTC), endtime (ISO 8601 UTC)
+        "&latlon={},{}&timestep=60&starttime={}&endtime={}&parameters=Temperature,WeatherSymbol3"
+    )  #!< FMI edited Scandinavia hourly point forecast (XML); sampled at 60-min steps so today's 3-hour display slots can report their peak. Args: latitude, longitude, starttime (ISO 8601 UTC), endtime (ISO 8601 UTC)
     FMI_FORECAST_DAILY_URL = (
         "https://opendata.fmi.fi/wfs/eng?service=WFS&version=2.0.0&request=getFeature"
         "&storedquery_id=fmi::forecast::edited::weather::scandinavia::point::simple"
-        "&latlon={},{}&timestep=1440&starttime={}&endtime={}&parameters=Temperature,WeatherSymbol3"
-    )  #!< FMI edited Scandinavia daily point forecast (XML). Args: latitude, longitude, starttime (ISO 8601 UTC), endtime (ISO 8601 UTC)
+        "&latlon={},{}&timestep=60&starttime={}&endtime={}&parameters=Temperature,WeatherSymbol3"
+    )  #!< FMI edited Scandinavia hourly point forecast (XML); sampled at 60-min steps and aggregated to a per-local-day maximum. Args: latitude, longitude, starttime (ISO 8601 UTC), endtime (ISO 8601 UTC)

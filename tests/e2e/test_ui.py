@@ -158,8 +158,14 @@ def test_language_switch_updates_all_labels(page: Page, base_url: str) -> None:
     # Finnish is the default — verify before switching
     expect(page.locator("#app-title")).to_have_text("Tiesää")
 
+    # #app-title is static HTML, so the assertion above passes before app.js has
+    # attached its event listeners. Wait for a JS-populated element to guarantee
+    # initEvents() has run before clicking JS-driven controls.
+    expect(page.locator("#station-select")).to_contain_text("Helsinki / Pasila")
+
     # Open language dropdown and choose English
     page.locator("#lang-btn").click()
+    expect(page.locator("#lang-list")).to_be_visible()
     page.locator(".lang-option[data-value='en']").click()
 
     # App title and a data label should now be in English

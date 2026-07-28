@@ -18,8 +18,10 @@ Classes:
 import datetime
 import logging
 import xml.etree.ElementTree as ET
+from zoneinfo import ZoneInfo
 
 import requests
+from django.conf import settings
 from requests.exceptions import RequestException
 
 from .definitions import Constants, Formats, Urls
@@ -162,20 +164,28 @@ class FmiForecastService:
     def get_forecast(self, coordinates) -> tuple[list[dict], str]:
         """Fetch and assemble FMI WFS hourly + daily forecast.
 
-        Makes two WFS requests:
-        - 3-hourly (timestep=180 min) covering today (UTC).
-        - Daily (timestep=1440 min) covering tomorrow through today + 8 days.
+        Makes two WFS requests, both sampled at 60-min steps:
+        - Hourly covering today (UTC), aggregated into 3-hour display slots.
+        - Daily covering tomorrow through today + 8 days, aggregated per
+          local calendar day.
+
+        The temperature reported for each item is the *maximum* over the
+        samples in that slot/day (not an instantaneous point value), so a slot
+        shows its peak temperature rather than the value at its start. The
+        symbol is taken from the sample that produced the maximum.
 
         @param coordinates  Object with .latitude and .longitude attributes.
         @return Tuple (forecast_list, current_symbol).
                 forecast_list: today's 3-hourly items then future daily items.
-                current_symbol: emoji for the most recently started 3-h slot
+                current_symbol: emoji for the sample nearest the current time
                                 (empty string if no hourly data).
         @details
         - Hourly items: {time (HH:MM), date (YYYY-MM-DD), temperature, symbol}.
         - Daily items: same shape plus daily=True and time="".
+        - Daily items are grouped by local calendar day (settings.TIME_ZONE).
         - FMI errors degrade gracefully to empty lists (no exception raised).
         """
+        local_tz = ZoneInfo(settings.TIME_ZONE)
         today = datetime.date.today()
         tomorrow = today + datetime.timedelta(days=1)
         end_daily = today + datetime.timedelta(days=8)
@@ -186,60 +196,96 @@ class FmiForecastService:
             f"{today.isoformat()}T00:00:00Z",
             f"{today.isoformat()}T23:59:59Z",
         )
+        # End before the earliest UTC time that could roll into a later local
+        # day (local day+9 starts at 21:00Z in summer / 22:00Z in winter), so
+        # no spurious night-only day is produced beyond end_daily.
         daily_url = Urls.FMI_FORECAST_DAILY_URL.format(
             coordinates.latitude,
             coordinates.longitude,
-            f"{tomorrow.isoformat()}T12:00:00Z",
-            f"{end_daily.isoformat()}T12:00:00Z",
+            f"{tomorrow.isoformat()}T00:00:00Z",
+            f"{end_daily.isoformat()}T20:59:59Z",
         )
 
         hourly_data = FmiXmlParser.parse(self._http._get_xml(hourly_url))
         daily_data = FmiXmlParser.parse(self._http._get_xml(daily_url))
 
         forecasts: list[dict] = []
-        current_symbol = ""
         now_utc = datetime.datetime.now(datetime.timezone.utc)
 
-        for ts in sorted(hourly_data):
-            entry = hourly_data[ts]
+        def _temperature(entry) -> float | None:
             try:
-                temp_c = round(float(entry.get("Temperature", 0)))
+                return float(entry.get("Temperature", 0))
             except (ValueError, TypeError):
-                temp_c = 0
-            symbol = get_fmi_weather_symbol(entry.get("WeatherSymbol3", ""))
+                return None
 
-            slot_start = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            slot_end = slot_start + datetime.timedelta(hours=3)
-
-            # current_symbol: use most-recently-started slot; fall back to first future slot.
-            if slot_start <= now_utc:
+        # current_symbol: sample nearest to now (most-recently-started, else
+        # the first future sample). Computed at hourly resolution.
+        current_symbol = ""
+        for ts in sorted(hourly_data):
+            symbol = get_fmi_weather_symbol(hourly_data[ts].get("WeatherSymbol3", ""))
+            sample_utc = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if sample_utc <= now_utc:
                 current_symbol = symbol
             elif not current_symbol:
                 current_symbol = symbol
 
-            # Skip slots whose 3-hour window has already ended.
-            if slot_end <= now_utc:
+        # \u2500\u2500 Today: aggregate hourly samples into 3-hour slots (peak temp) \u2500\u2500
+        hourly_slots: dict[tuple[str, int], dict] = {}
+        for ts in sorted(hourly_data):
+            temp = _temperature(hourly_data[ts])
+            if temp is None:
                 continue
+            sample_utc = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            slot_hour = (sample_utc.hour // 3) * 3
+            key = (ts[:10], slot_hour)
+            slot = hourly_slots.get(key)
+            if slot is None or temp > slot["temp"]:
+                hourly_slots[key] = {
+                    "temp": temp,
+                    "symbol_code": hourly_data[ts].get("WeatherSymbol3", ""),
+                }
 
+        for date_str, slot_hour in sorted(hourly_slots):
+            slot = hourly_slots[(date_str, slot_hour)]
+            slot_start = datetime.datetime.fromisoformat(
+                f"{date_str}T{slot_hour:02d}:00:00+00:00"
+            )
+            # Skip slots whose 3-hour window has already ended.
+            if slot_start + datetime.timedelta(hours=3) <= now_utc:
+                continue
             forecasts.append({
-                "time": ts[11:16],
-                "date": ts[:10],
-                "temperature": f"{temp_c} \u00b0C",
-                "symbol": symbol,
+                "time": f"{slot_hour:02d}:00",
+                "date": date_str,
+                "temperature": f"{round(slot['temp'])} \u00b0C",
+                "symbol": get_fmi_weather_symbol(slot["symbol_code"]),
             })
 
+        # \u2500\u2500 Future days: aggregate hourly samples per local day (peak temp) \u2500\u2500
+        daily_slots: dict[str, dict] = {}
         for ts in sorted(daily_data):
-            entry = daily_data[ts]
-            try:
-                temp_c = round(float(entry.get("Temperature", 0)))
-            except (ValueError, TypeError):
-                temp_c = 0
-            symbol = get_fmi_weather_symbol(entry.get("WeatherSymbol3", ""))
+            temp = _temperature(daily_data[ts])
+            if temp is None:
+                continue
+            local_date = (
+                datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                .astimezone(local_tz)
+                .date()
+                .isoformat()
+            )
+            slot = daily_slots.get(local_date)
+            if slot is None or temp > slot["temp"]:
+                daily_slots[local_date] = {
+                    "temp": temp,
+                    "symbol_code": daily_data[ts].get("WeatherSymbol3", ""),
+                }
+
+        for local_date in sorted(daily_slots):
+            slot = daily_slots[local_date]
             forecasts.append({
                 "time": "",
-                "date": ts[:10],
-                "temperature": f"{temp_c} \u00b0C",
-                "symbol": symbol,
+                "date": local_date,
+                "temperature": f"{round(slot['temp'])} \u00b0C",
+                "symbol": get_fmi_weather_symbol(slot["symbol_code"]),
                 "daily": True,
             })
 

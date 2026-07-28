@@ -86,6 +86,10 @@ Open <http://127.0.0.1:8000/> in your browser.
 ## Testing
 
 ```bash
+# Activate the virtualenv first
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate      # Linux / macOS
+
 # Offline Django tests
 python manage.py test weather
 
@@ -110,3 +114,4 @@ python scripts/smoke_test.py
 
 - Road weather data: **Fintraffic / Digitraffic** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - Forecast data: **Finnish Meteorological Institute (FMI)** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- History trend chart: **[Chart.js](https://www.chartjs.org/)** and its date-fns time adapter, licensed under [MIT](https://opensource.org/licenses/MIT) — self-hosted under `weather/static/weather/js/vendor/` (no CDN dependency)
