@@ -1040,6 +1040,172 @@ class FmiXmlParserTests(SimpleTestCase):
         self.assertEqual(FmiXmlParser.parse("<<<not valid xml>>>"), {})
 
 
+# ── Forecast peak-temperature aggregation ────────────────────
+def _fmi_xml(samples):
+    """@brief Build FMI WFS XML from (time, temperature, symbol) tuples."""
+    members = "".join(
+        f"""  <wfs:member>
+    <BsWfs:BsWfsElement>
+      <BsWfs:Time>{t}</BsWfs:Time>
+      <BsWfs:ParameterName>Temperature</BsWfs:ParameterName>
+      <BsWfs:ParameterValue>{temp}</BsWfs:ParameterValue>
+    </BsWfs:BsWfsElement>
+  </wfs:member>
+  <wfs:member>
+    <BsWfs:BsWfsElement>
+      <BsWfs:Time>{t}</BsWfs:Time>
+      <BsWfs:ParameterName>WeatherSymbol3</BsWfs:ParameterName>
+      <BsWfs:ParameterValue>{sym}</BsWfs:ParameterValue>
+    </BsWfs:BsWfsElement>
+  </wfs:member>
+"""
+        for (t, temp, sym) in samples
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"\n'
+        '                       xmlns:BsWfs="http://xml.fmi.fi/schema/wfs/2.0">\n'
+        f"{members}</wfs:FeatureCollection>"
+    )
+
+
+class ForecastAggregationTests(SimpleTestCase):
+    """@brief FmiForecastService reports the peak temperature per slot/day."""
+
+    def _run(self, hourly_samples, daily_samples):
+        from types import SimpleNamespace
+        from weather.services.weather_service import FmiForecastService
+
+        xmls = [_fmi_xml(hourly_samples), _fmi_xml(daily_samples)]
+        http = SimpleNamespace(_get_xml=lambda url: xmls.pop(0))
+        svc = FmiForecastService(http)
+        coords = SimpleNamespace(latitude=65.0, longitude=25.0)
+        return svc.get_forecast(coords)
+
+    def test_hourly_slot_reports_max_and_its_symbol(self):
+        """@brief A 3-hour slot shows its warmest sub-hour, with that hour's symbol."""
+        from weather.services.fmi_symbols import get_fmi_weather_symbol
+        # Future date so the slot is never skipped as past. All three fall in
+        # the 21:00 UTC slot; peak is 22:00Z at 17.9 °C with symbol code 2.
+        forecast, _ = self._run(
+            hourly_samples=[
+                ("2099-12-31T21:00:00Z", "15.5", "1"),
+                ("2099-12-31T22:00:00Z", "17.9", "2"),
+                ("2099-12-31T23:00:00Z", "16.0", "3"),
+            ],
+            daily_samples=[],
+        )
+        slot = [f for f in forecast if not f.get("daily")][0]
+        self.assertEqual(slot["time"], "21:00")
+        self.assertEqual(slot["temperature"], "18 °C")  # round(17.9)
+        self.assertEqual(slot["symbol"], get_fmi_weather_symbol("2"))
+
+    def test_daily_reports_local_day_max(self):
+        """@brief A daily item shows the max over that local calendar day."""
+        from weather.services.fmi_symbols import get_fmi_weather_symbol
+        # Both samples land on local day 2100-01-02 (Europe/Helsinki); the
+        # afternoon peak (22.4 °C, symbol 3) must win over the cool morning.
+        forecast, _ = self._run(
+            hourly_samples=[],
+            daily_samples=[
+                ("2100-01-02T06:00:00Z", "10.0", "1"),
+                ("2100-01-02T12:00:00Z", "22.4", "3"),
+            ],
+        )
+        daily = [f for f in forecast if f.get("daily")]
+        self.assertEqual(len(daily), 1)
+        self.assertEqual(daily[0]["date"], "2100-01-02")
+        self.assertEqual(daily[0]["temperature"], "22 °C")  # round(22.4)
+        self.assertEqual(daily[0]["symbol"], get_fmi_weather_symbol("3"))
+
+    def test_past_hourly_slots_are_skipped(self):
+        """@brief Slots whose 3-hour window has already ended are dropped."""
+        # A slot dated in the year 2000 has long since ended; a future slot
+        # survives. Only the future one should be returned.
+        forecast, _ = self._run(
+            hourly_samples=[
+                ("2000-01-01T00:00:00Z", "5.0", "1"),
+                ("2099-12-31T21:00:00Z", "16.0", "1"),
+            ],
+            daily_samples=[],
+        )
+        slots = [f for f in forecast if not f.get("daily")]
+        self.assertEqual(len(slots), 1)
+        self.assertEqual(slots[0]["date"], "2099-12-31")
+
+    def test_multiple_future_slots_ordered_by_time(self):
+        """@brief Distinct 3-hour slots are emitted in chronological order."""
+        forecast, _ = self._run(
+            hourly_samples=[
+                ("2099-12-31T21:00:00Z", "16.0", "1"),
+                ("2099-12-31T06:00:00Z", "12.0", "1"),
+                ("2099-12-31T12:00:00Z", "14.0", "1"),
+            ],
+            daily_samples=[],
+        )
+        times = [f["time"] for f in forecast if not f.get("daily")]
+        self.assertEqual(times, ["06:00", "12:00", "21:00"])
+
+    def test_invalid_temperature_sample_is_ignored(self):
+        """@brief A non-numeric sample is skipped; the slot's max comes from the valid ones."""
+        forecast, _ = self._run(
+            hourly_samples=[
+                ("2099-12-31T21:00:00Z", "not-a-number", "1"),
+                ("2099-12-31T22:00:00Z", "17.9", "2"),
+            ],
+            daily_samples=[],
+        )
+        slots = [f for f in forecast if not f.get("daily")]
+        self.assertEqual(len(slots), 1)
+        self.assertEqual(slots[0]["temperature"], "18 °C")  # round(17.9)
+
+    def test_current_symbol_prefers_most_recent_started_sample(self):
+        """@brief current_symbol is the last sample at or before now, not a future one."""
+        from weather.services.fmi_symbols import get_fmi_weather_symbol
+        _, current_symbol = self._run(
+            hourly_samples=[
+                ("2000-01-01T00:00:00Z", "5.0", "1"),   # past → most recent started
+                ("2099-12-31T21:00:00Z", "16.0", "2"),  # future
+            ],
+            daily_samples=[],
+        )
+        self.assertEqual(current_symbol, get_fmi_weather_symbol("1"))
+
+    def test_current_symbol_falls_back_to_first_future_sample(self):
+        """@brief With only future samples, current_symbol is the earliest one."""
+        from weather.services.fmi_symbols import get_fmi_weather_symbol
+        _, current_symbol = self._run(
+            hourly_samples=[
+                ("2099-12-31T21:00:00Z", "16.0", "3"),
+                ("2099-12-31T18:00:00Z", "15.0", "2"),
+            ],
+            daily_samples=[],
+        )
+        self.assertEqual(current_symbol, get_fmi_weather_symbol("2"))
+
+    def test_daily_groups_samples_by_local_calendar_day(self):
+        """@brief A late-UTC sample rolls into the next Europe/Helsinki day."""
+        # 23:00Z on 2100-01-02 is 01:00 the next day in Helsinki (UTC+2 in
+        # winter), so it must be bucketed under 2100-01-03, not 2100-01-02.
+        forecast, _ = self._run(
+            hourly_samples=[],
+            daily_samples=[
+                ("2100-01-02T10:00:00Z", "5.0", "1"),
+                ("2100-01-02T23:00:00Z", "9.0", "1"),
+            ],
+        )
+        daily = [f for f in forecast if f.get("daily")]
+        self.assertEqual([d["date"] for d in daily], ["2100-01-02", "2100-01-03"])
+        self.assertEqual(daily[0]["temperature"], "5 °C")
+        self.assertEqual(daily[1]["temperature"], "9 °C")
+
+    def test_empty_forecast_returns_empty_list_and_symbol(self):
+        """@brief No samples yields an empty forecast and an empty current_symbol."""
+        forecast, current_symbol = self._run(hourly_samples=[], daily_samples=[])
+        self.assertEqual(forecast, [])
+        self.assertEqual(current_symbol, "")
+
+
 # ── _parse_timestamp edge cases ──────────────────────────────
 class ParseTimestampTests(SimpleTestCase):
     """@brief Tests for weather_station._parse_timestamp fallback behaviour."""

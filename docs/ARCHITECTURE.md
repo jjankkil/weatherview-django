@@ -95,6 +95,8 @@ Key source locations:
 - [weather/static/weather/js/state.js](../weather/static/weather/js/state.js) — global app state object, `forecastCarousel`, `FORECAST_PAGE_SIZE`, MRU helpers
 - [weather/static/weather/js/geo.js](../weather/static/weather/js/geo.js) — geolocation / nearest-station selection
 - [weather/static/weather/js/camera.js](../weather/static/weather/js/camera.js) — weather camera module (carousel, lightbox, station lookup)
+- [weather/static/weather/js/trend_chart.js](../weather/static/weather/js/trend_chart.js) — temperature/precipitation history trend chart (Chart.js)
+- `weather/static/weather/js/vendor/` — self-hosted third-party libraries served locally (no CDN): `chart.umd.min.js` (Chart.js) and `chartjs-adapter-date-fns.bundle.min.js` (time-axis adapter), loaded via `<script>` tags in `index.html`
 - [weather/static/weather/js/constants.js](../weather/static/weather/js/constants.js) — UI configuration constants
 - [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) — UI styling and weather camera layout
 
@@ -273,11 +275,11 @@ sequenceDiagram
         WS->>DT: GET /stations/{id}/data
         DT-->>WS: {dataUpdatedTime, sensorValues:[...]}
         WS->>WS: WeatherStation.parse → derive temp/wind/feels-like/road-temp/visibility/dew-point/humidity
-        WS->>FMI: GET WFS?timestep=180&starttime=today_00:00Z&endtime=today_23:59Z (3-hourly)
-        FMI-->>WS: WFS XML — today’s 3-hourly Temperature + WeatherSymbol3
-        WS->>FMI: GET WFS?timestep=1440&starttime=tomorrow_12:00Z&endtime=+8days_12:00Z (daily)
-        FMI-->>WS: WFS XML — future daily Temperature + WeatherSymbol3
-        WS->>WS: build today’s 3-hourly items + one daily summary per future date
+        WS->>FMI: GET WFS?timestep=60&starttime=today_00:00Z&endtime=today_23:59Z (hourly)
+        FMI-->>WS: WFS XML — today’s hourly Temperature + WeatherSymbol3
+        WS->>FMI: GET WFS?timestep=60&starttime=tomorrow_00:00Z&endtime=+8days_20:59Z (hourly)
+        FMI-->>WS: WFS XML — future hourly Temperature + WeatherSymbol3
+        WS->>WS: aggregate today into 3-hour slots (peak temp) + one per-local-day max per future date
         WS-->>View: dict (station_name, temperature, ..., _next_update_at, forecast[])
         View->>SC: set(response, ttl = next_update_at - now + 30s)
         View-->>Browser: 200 JSON (or 502 on upstream error)
@@ -466,7 +468,7 @@ flowchart TD
 
 The forecast section renders a hybrid paginated carousel:
 
-- **Data**: The backend returns today’s 3-hourly FMI WFS entries for the rest of the day, followed by one daily summary per future day (up to 8 days). Each hourly item carries `time` (HH:MM), `date` (YYYY-MM-DD), `temperature` (rounded \u00b0C string), and `symbol`. Daily items additionally carry `daily: true` and have an empty `time` string.
+- **Data**: The backend returns today’s 3-hour slots for the rest of the day, followed by one summary per future day (up to 8 days). Each item's `temperature` is the **peak (maximum)** over that slot/day rather than an instantaneous point value — the FMI series is sampled hourly (`timestep=60`) and aggregated server-side, and the `symbol` is taken from the sample that produced the peak. Future days are grouped by **local calendar day** (`settings.TIME_ZONE`, Europe/Helsinki). Each hourly item carries `time` (HH:MM), `date` (YYYY-MM-DD), `temperature` (rounded \u00b0C string), and `symbol`. Daily items additionally carry `daily: true` and have an empty `time` string.
 - **Page size**: 3 items per page (`FORECAST_PAGE_SIZE = 3` in `app.js`).
 - **Navigation**: `\u2039` / `\u203a` buttons call `forecastGoTo(i)`, which slices `forecastCarousel.items` and re-renders the visible page. Buttons are disabled at the first and last page respectively.
 - **Time label**: 3-hourly items show a weekday + time-range label (e.g. “Ma 9–12”); daily items show only the weekday abbreviation (e.g. “Ti”). Both are derived from the `date` field.
@@ -579,7 +581,7 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 ## 12. Operational Notes
 
 - **Sessions**: Django signed-cookie backend. No server-side session store needed; rotating `SECRET_KEY` invalidates all stored settings.
-- **Forecast**: FMI open data WFS API is used for both the current weather symbol and the forecast carousel. No API key is required; the forecast is always available. Two requests are made per station fetch: one 3-hourly request for today and one daily request for the following 8 days. FMI WFS returns XML (GML), parsed with `xml.etree.ElementTree` (stdlib). Failures degrade gracefully to empty `current_symbol` and `forecast`.
+- **Forecast**: FMI open data WFS API is used for both the current weather symbol and the forecast carousel. No API key is required; the forecast is always available. Two requests are made per station fetch, both sampled hourly (`timestep=60`): one covering today and one covering the following 8 days. Each displayed value is the **maximum** temperature over its window — today's samples are aggregated into 3-hour slots and future samples are grouped per local calendar day (`settings.TIME_ZONE`) — so a slot shows its peak rather than the value at its start. FMI WFS returns XML (GML), parsed with `xml.etree.ElementTree` (stdlib). Failures degrade gracefully to empty `current_symbol` and `forecast`.
 - **Rate limiting**: `_is_rate_limited(ip)` in `views.py` implements a sliding-window counter stored in the Django cache. The limit is configurable via the `WEATHER_RATE_LIMIT` env var (default `15/m`). Exceeding the limit returns HTTP 429. When using `LocMemCache` (the dev default), counters reset on process restart and are not shared across workers; with Redis, counters are shared across all workers.
 - **Cache backend**: `django_redis.cache.RedisCache` when `WVD_REDIS_URL` is set; `LocMemCache` otherwise (no Redis required for local development). Two cache namespaces: `weather_station_list` (station catalogue, TTL ≈ 5 min) and `station_data:{id}:{lang}` (per-station observation response, TTL = `next_update_at - now + 30 s`). Redis is required when running multiple Gunicorn workers (`--workers > 1`).
 - **Timeouts**: All outbound HTTP uses a 10-second timeout ([weather_service.py](../weather/services/weather_service.py)). There is no server-side retry; a transient Digitraffic failure (including 5xx responses) surfaces as HTTP 502 with a clean `{"error": "Upstream service error (HTTP <status>)"}` body. The frontend displays this in the error banner; no automatic retry is scheduled — the user must click **Päivitä nyt** to retry.
