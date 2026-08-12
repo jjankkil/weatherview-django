@@ -87,6 +87,7 @@ Open <http://127.0.0.1:8000/> in your browser. See the [Development Guide](docs/
 - [Development Guide](docs/DEVELOPMENT.md) - local setup, checks, test workflows, and Doxygen usage
 - [Deployment Guide](docs/DEPLOYMENT.md) - Linux production deployment with Gunicorn, systemd, and Nginx
 - [Configuration Reference](docs/CONFIGURATION.md) - environment variables, defaults, and production notes
+- [Internet Access](docs/INTERNET_ACCESS.md) - exposing an instance safely with TLS, a reverse proxy, and dynamic DNS
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - common issues and practical fixes
 
 ## Credits
@@ -94,3 +95,8 @@ Open <http://127.0.0.1:8000/> in your browser. See the [Development Guide](docs/
 - Road weather data: **Fintraffic / Digitraffic** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - Forecast data: **Finnish Meteorological Institute (FMI)** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - History trend chart: **[Chart.js](https://www.chartjs.org/)** and its date-fns time adapter, licensed under [MIT](https://opensource.org/licenses/MIT) — self-hosted under `weather/static/weather/js/vendor/` (no CDN dependency)
+
+## License
+
+WeatherView itself is licensed under the [MIT License](LICENSE). The data sources
+and bundled libraries credited above keep their own licenses.
