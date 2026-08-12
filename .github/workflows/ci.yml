@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: CI only reads the repository. Overrides the repository-level
+# default so the token stays read-only even if that setting is widened later.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
