@@ -20,3 +20,4 @@ docs/doxygen/
 .tmp/
 /commit.txt
 /todo.txt
+docs/private/
