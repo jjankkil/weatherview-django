@@ -14,7 +14,7 @@ Pick any of 400+ Finnish road weather stations and view current observations, FM
 - Humidity, dew point, road surface temperature, visibility, temperature rate of change, and present weather
 - Forecast carousel with intra-day and multi-day outlook
 - Trend history chart with configurable history window
-- Finnish/Swedish/English UI toggle
+- Finnish/Swedish/English UI language
 - Server-driven refresh scheduling (no blind polling)
 - Session-based settings and client-side MRU station list
 - Built-in API rate limiting (configurable)
@@ -26,9 +26,13 @@ No database is required. User preferences are stored in signed-cookie sessions.
 
 ### Requirements
 
+Server side:
 - Python 3.12+ (Django 6 requires 3.12+; 3.13 tested)
 - Internet access (Digitraffic + FMI open data)
 - Redis (optional for local development)
+
+Client side:
+- Nothing special, any web browser should work (tested with Firefox, Chrome, Edge, Opera, Brave, Safari brosers)
 
 ### Install and run
 
@@ -39,12 +43,6 @@ cd weatherview-django
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 # source .venv/bin/activate      # Linux / macOS
-
-# On Raspberry Pi OS Bookworm, the default `python3` is often 3.11, which is too old for Django 6.
-# Use Python 3.12 or 3.13 instead, for example:
-# python3.12 -m venv .venv
-# or
-# python3.13 -m venv .venv
 
 pip install -r requirements.txt
 cp .env.example .env
@@ -69,7 +67,7 @@ startup.bat
 ./startup.sh
 ```
 
-Open <http://127.0.0.1:8000/> in your browser.
+Open <http://127.0.0.1:8000/> in your browser. See the [Development Guide](docs/DEVELOPMENT.md) for dev checks, testing, and API docs generation.
 
 ## Usage
 
@@ -77,30 +75,11 @@ Open <http://127.0.0.1:8000/> in your browser.
 | ---------------------- | -------------------------------------------------------------------------------- |
 | Station dropdown       | Pick any station. Most-recently-used 10 are grouped at the top.                  |
 | Search button          | Open a search modal and filter stations by name.                                 |
-| Language button        | Toggle between Finnish, Swedish, and English.                                    |
-| Settings button        | Open settings (camera toggle, use-my-location toggle).                           |
-| Paivita nyt button     | Force an immediate refresh.                                                      |
+| Language dropdown      | Select from available languages.                                    |
+| Settings button        | Open settings (camera toggle, use-my-location toggle. displayed history length).                           |
+| 'Päivitä nyt' button   | (Update now) Force an immediate refresh.                                                      |
 | Seuraava paivitys: N s | Countdown to the next automatic refresh when the server signals new data is due. |
 | Camera image           | Open a lightbox and navigate images with controls, keys, or swipe.               |
-
-## Testing
-
-```bash
-# Activate the virtualenv first
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate      # Linux / macOS
-
-# Offline Django tests
-python manage.py test weather
-
-# Playwright browser tests
-pip install -r requirements-dev.txt
-playwright install chromium
-pytest tests/e2e/
-
-# Live smoke test
-python scripts/smoke_test.py
-```
 
 ## Documentation
 

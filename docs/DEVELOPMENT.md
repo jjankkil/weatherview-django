@@ -10,13 +10,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 # source .venv/bin/activate      # Linux / macOS
 
-# On Raspberry Pi OS Bookworm, the default `python3` is often 3.11, which is too old for Django 6.
-# Use Python 3.12 or 3.13 instead, for example:
-# python3.12 -m venv .venv
-# or
-# python3.13 -m venv .venv
-
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp .env.example .env
 ```
 
@@ -60,7 +54,6 @@ These tests are fast and run without network access.
 ### Playwright browser tests
 
 ```bash
-pip install -r requirements-dev.txt
 playwright install chromium
 pytest tests/e2e/
 ```

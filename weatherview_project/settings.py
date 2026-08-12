@@ -10,6 +10,7 @@
 #  | WVD_SECRET_KEY | *(required)* | Django cryptographic secret key |
 #  | WVD_DEBUG | `False` | Enable Django debug mode |
 #  | WVD_ALLOWED_HOSTS | `*,localhost,127.0.0.1` | Comma-separated allowed host list |
+#  | WVD_CSRF_TRUSTED_ORIGINS | *(unset)* | Comma-separated scheme-qualified origins trusted for CSRF (e.g. `https://weather.example.com`) |
 #  | WVD_SESSION_COOKIE_AGE | `604800` (7 days) | Session lifetime in seconds |
 #  | WVD_SECURE_HSTS_SECONDS | `31536000` (prod) / `0` (debug) | HSTS max-age |
 #  | WEATHER_RATE_LIMIT | `15/m` | Rate limit for weather API endpoint (per IP), e.g. "15/m" |
@@ -66,6 +67,10 @@ SECRET_KEY = os.environ["WVD_SECRET_KEY"]  ##< Django cryptographic secret key. 
 DEBUG = os.getenv("WVD_DEBUG", "False") == "True"  ##< Enable Django debug mode. Set WVD_DEBUG=True to activate.
 
 ALLOWED_HOSTS = os.getenv("WVD_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")  ##< Comma-separated list of allowed hostnames. Set via WVD_ALLOWED_HOSTS.
+
+CSRF_TRUSTED_ORIGINS = list(  ##< Scheme-qualified origins trusted for unsafe (CSRF-checked) requests. Set via WVD_CSRF_TRUSTED_ORIGINS (comma-separated, each including https://). Empty by default (LAN-only deployments don't need it).
+    filter(None, os.getenv("WVD_CSRF_TRUSTED_ORIGINS", "").split(","))
+)
 
 WEATHER_RATE_LIMIT = os.getenv("WEATHER_RATE_LIMIT", "15/m")  ##< Rate limit for weather API endpoint (per IP). Sliding-window format: "<count>/<unit>" where unit is s/m/h/d.
 
