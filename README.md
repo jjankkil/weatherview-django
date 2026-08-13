@@ -22,6 +22,8 @@ Pick any of 400+ Finnish road weather stations and view current observations, FM
 
 No database is required. User preferences are stored in signed-cookie sessions.
 
+Refer to the [User Guide](docs/USER_GUIDE.md) for further details.
+
 ## Quick Start
 
 ### Requirements
@@ -83,6 +85,7 @@ Open <http://127.0.0.1:8000/> in your browser. See the [Development Guide](docs/
 
 ## Documentation
 
+- [User Guide](docs/USER_GUIDE.md) - how the app behaves, for non-technical users
 - [Architecture](docs/ARCHITECTURE.md) - component design, data flow, and runtime behavior
 - [Development Guide](docs/DEVELOPMENT.md) - local setup, checks, test workflows, and Doxygen usage
 - [Deployment Guide](docs/DEPLOYMENT.md) - Linux production deployment with Gunicorn, systemd, and Nginx
