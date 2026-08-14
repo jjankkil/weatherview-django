@@ -1,0 +1,23 @@
+# Robot Framework project configuration (used by the `robot`/`robotcode` CLI
+# and the RobotCode VS Code extension).
+
+[tool.robot]
+output_dir  = "results"          # all output files go here (log.html, report.html, output.xml)
+log_level   = "INFO"
+
+[tool.robot.variables]
+BASE_URL     = "http://127.0.0.1:18765"   # Django dev server; matches tests/e2e/conftest.py port
+STATION_ID   = "1001"
+BROWSER      = "chromium"
+HEADLESS     = "true"
+
+# --- profiles ---
+
+[profiles.headed]
+[profiles.headed.tool.robot.variables]
+HEADLESS = "false"
+
+[profiles.ci]
+[profiles.ci.tool.robot.variables]
+BASE_URL = "http://127.0.0.1:18765"
+HEADLESS = "true"

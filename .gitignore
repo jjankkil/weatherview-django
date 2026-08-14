@@ -21,3 +21,10 @@ docs/doxygen/
 /commit.txt
 /todo.txt
 docs/private/
+tests/robot/results/
+tests/robot/results-*/
+# Robot output landed loose in tests/robot/ (e.g. --outputdir wasn't passed)
+tests/robot/output.xml
+tests/robot/log.html
+tests/robot/report.html
+tests/robot/playwright-log.txt

@@ -69,3 +69,40 @@ jobs:
 
       - name: Run Playwright tests
         run: pytest tests/e2e/
+
+  robot-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Install Robot Framework dependencies
+        run: pip install -r requirements-robot.txt
+
+      - name: Initialize Browser library (installs its own Playwright/Node deps)
+        run: rfbrowser init
+
+      # WVD_REDIS_URL is intentionally left unset so the suite uses LocMemCache —
+      # see tests/robot/resources/common.resource for why that matters for the
+      # rate-limiting tests.
+      - name: Run Robot Framework smoke tests
+        env:
+          WVD_SECRET_KEY: ci-test-key
+        run: robot --outputdir tests/robot/results -i smoke tests/robot
+
+      - name: Upload Robot Framework report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: robot-results
+          path: tests/robot/results/
