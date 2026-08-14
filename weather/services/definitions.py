@@ -9,6 +9,7 @@ and enum types used throughout the weather service module.
 """
 
 import enum
+import os
 
 
 class Constants:
@@ -55,9 +56,10 @@ class Urls:
     - Digitraffic endpoints return GeoJSON-formatted station data (JSON)
     - FMI WFS forecast endpoint returns XML (GML/WFS 2.0 simple feature format)
     """
-    STATION_LIST_URL = "https://tie.digitraffic.fi/api/weather/v1/stations"  #!< Digitraffic road weather station list with metadata and coordinates
-    WEATHER_STATION_URL = "https://tie.digitraffic.fi/api/weather/v1/stations/{}/data"  #!< Digitraffic station observations. Args: station ID
-    WEATHER_STATION_HISTORY_URL = "https://tie.digitraffic.fi/api/weather/v1/stations/{}/data/history"  #!< Digitraffic station sensor value history (max 24h). Args: station ID
+    DIGITRAFFIC_BASE_URL = os.getenv("WVD_DIGITRAFFIC_BASE_URL", "https://tie.digitraffic.fi/api/weather/v1")  #!< Overridable in tests (e.g. Robot Framework E2E suites) to point at a local fixture server
+    STATION_LIST_URL = f"{DIGITRAFFIC_BASE_URL}/stations"  #!< Digitraffic road weather station list with metadata and coordinates
+    WEATHER_STATION_URL = DIGITRAFFIC_BASE_URL + "/stations/{}/data"  #!< Digitraffic station observations. Args: station ID
+    WEATHER_STATION_HISTORY_URL = DIGITRAFFIC_BASE_URL + "/stations/{}/data/history"  #!< Digitraffic station sensor value history (max 24h). Args: station ID
     FMI_FORECAST_HOURLY_URL = (
         "https://opendata.fmi.fi/wfs/eng?service=WFS&version=2.0.0&request=getFeature"
         "&storedquery_id=fmi::forecast::edited::weather::scandinavia::point::simple"

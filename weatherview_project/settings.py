@@ -15,6 +15,7 @@
 #  | WVD_SECURE_HSTS_SECONDS | `31536000` (prod) / `0` (debug) | HSTS max-age |
 #  | WEATHER_RATE_LIMIT | `15/m` | Rate limit for weather API endpoint (per IP), e.g. "15/m" |
 #  | WVD_REDIS_URL | *(unset)* | Redis URL for caching. When unset: LocMemCache (single-worker dev). When set: RedisCache (multi-worker prod). |
+#  | WVD_DIGITRAFFIC_BASE_URL | `https://tie.digitraffic.fi/api/weather/v1` | Digitraffic API base URL. Test-only override (see tests/robot/fixtures/fixture_server.py). |
 #
 #  @author Jari Jankkila
 #  @date 2026

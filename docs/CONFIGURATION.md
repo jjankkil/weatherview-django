@@ -59,6 +59,13 @@ python -c "from django.utils.crypto import get_random_string; print(get_random_s
   - Example: `redis://localhost:6379/0`
   - If omitted, application uses Django LocMem cache.
 
+- `WVD_DIGITRAFFIC_BASE_URL`
+  - Base URL for the Digitraffic road-weather API (station list, station data, station history).
+  - Default: `https://tie.digitraffic.fi/api/weather/v1`
+  - Test-only — lets the Robot Framework E2E suite point the app at a local
+    fixture server instead of the real API (see `tests/robot/fixtures/fixture_server.py`).
+    Not meant to be set in normal development or production `.env` files.
+
 ## Cache behavior
 
 - Production multi-worker deployments should use Redis.
