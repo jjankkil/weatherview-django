@@ -1297,13 +1297,14 @@ class StationHistoryServiceTests(SimpleTestCase):
 
     @patch("weather.services.weather_service.requests.get")
     def test_get_station_history_returns_correct_structure(self, mock_get):
-        """@brief get_station_history() always returns temp_series, precip_series, and has_precipitation."""
+        """@brief get_station_history() always returns temp_series, precip_series, has_precipitation, and rain_sum_24h."""
         mock_get.return_value = _mock_response(self._make_history_payload(temp_value=10.5))
         svc = WeatherService()
         result = svc.get_station_history(12345, hours=1)
         self.assertIn("temp_series", result)
         self.assertIn("precip_series", result)
         self.assertIn("has_precipitation", result)
+        self.assertIn("rain_sum_24h", result)
         self.assertIsInstance(result["temp_series"], list)
         self.assertIsInstance(result["precip_series"], list)
         self.assertIsInstance(result["has_precipitation"], bool)
@@ -1357,8 +1358,26 @@ class StationHistoryServiceTests(SimpleTestCase):
         mock_get.return_value = _mock_http_error_response(503)
         svc = WeatherService()
         result = svc.get_station_history(12345, hours=1)
-        self.assertEqual(result, {"temp_series": [], "precip_series": [], "has_precipitation": False})
+        self.assertEqual(result, {"temp_series": [], "precip_series": [], "has_precipitation": False, "rain_sum_24h": None})
         self.assertTrue(svc.has_error)
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_rain_sum_24h_none_when_no_precip_sensor(self, mock_get):
+        """@brief rain_sum_24h is None when the station has no precipitation sensor."""
+        mock_get.return_value = _mock_response(self._make_history_payload(temp_value=5.0))
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=1)
+        self.assertIsNone(result["rain_sum_24h"])
+
+    @patch("weather.services.weather_service.requests.get")
+    def test_get_station_history_rain_sum_24h_sums_precip_regardless_of_hours(self, mock_get):
+        """@brief rain_sum_24h reflects the trailing 24h total even when `hours` requests a shorter window."""
+        mock_get.return_value = _mock_response(self._make_history_payload(temp_value=5.0, precip_value=2.0))
+        svc = WeatherService()
+        result = svc.get_station_history(12345, hours=1)
+        self.assertEqual(result["rain_sum_24h"], 2.0)
+        # precip_series is still trimmed to the shown (1h) window
+        self.assertTrue(len(result["precip_series"]) <= 2)
 
     @patch("weather.services.weather_service.requests.get")
     def test_get_station_history_filters_invalid_sensor_values(self, mock_get):
@@ -1401,13 +1420,14 @@ class StationHistoryViewTests(SimpleTestCase):
 
     @patch("weather.views.WeatherService")
     def test_api_station_history_returns_correct_keys(self, MockWeatherService):
-        """@brief GET /api/station-history/<id>/ returns temp_series, precip_series, has_precipitation."""
+        """@brief GET /api/station-history/<id>/ returns temp_series, precip_series, has_precipitation, rain_sum_24h."""
         mock_svc = MockWeatherService.return_value
         mock_svc.has_error = False
         mock_svc.get_station_history.return_value = {
             "temp_series": [{"time": "2026-05-12T12:00:00Z", "temperature": 10.5}],
             "precip_series": [{"time": "2026-05-12T12:00:00Z", "precipitation": None}],
             "has_precipitation": False,
+            "rain_sum_24h": None,
         }
         r = self._get("/api/station-history/12345/")
         self.assertEqual(r.status_code, 200)
@@ -1415,6 +1435,7 @@ class StationHistoryViewTests(SimpleTestCase):
         self.assertIn("temp_series", data)
         self.assertIn("precip_series", data)
         self.assertIn("has_precipitation", data)
+        self.assertIn("rain_sum_24h", data)
 
     @patch("weather.views.WeatherService")
     def test_api_station_history_upstream_error_returns_502(self, MockWeatherService):

@@ -424,8 +424,11 @@ def api_station_history(request, station_id: int):
     @param request    Django request object with user session.
     @param station_id Digitraffic station ID from URL path parameter.
     @return JsonResponse with structure:
-            - history: list of {time (ISO 8601 UTC), temperature (°C|null), precipitation (mm/h|null)}
-            - has_precipitation: bool – true if any non-zero precipitation reading was found
+            - temp_series: list of {time (ISO 8601 UTC), temperature (°C|null)}
+            - precip_series: list of {time (ISO 8601 UTC), precipitation (mm/h|null)}
+            - has_precipitation: bool – true if the station has a precipitation sensor
+            - rain_sum_24h: float|null – total precipitation (mm) over the trailing 24h,
+              independent of ``history_hours``
             On error (502): {"error": "<message>"}
     @details
     - HTTP method: GET only

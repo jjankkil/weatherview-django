@@ -23,6 +23,7 @@ docs/doxygen/
 docs/private/
 tests/robot/results/
 tests/robot/results-*/
+tests/robot/results_*/
 # Robot output landed loose in tests/robot/ (e.g. --outputdir wasn't passed)
 tests/robot/output.xml
 tests/robot/log.html

@@ -95,7 +95,7 @@ Key source locations:
 - [weather/static/weather/js/state.js](../weather/static/weather/js/state.js) — global app state object, `forecastCarousel`, `FORECAST_PAGE_SIZE`, MRU helpers
 - [weather/static/weather/js/geo.js](../weather/static/weather/js/geo.js) — geolocation / nearest-station selection
 - [weather/static/weather/js/camera.js](../weather/static/weather/js/camera.js) — weather camera module (carousel, lightbox, station lookup)
-- [weather/static/weather/js/trend_chart.js](../weather/static/weather/js/trend_chart.js) — temperature/precipitation history trend chart (Chart.js)
+- [weather/static/weather/js/trend_chart.js](../weather/static/weather/js/trend_chart.js) — temperature/precipitation history trend chart (Chart.js) plus the rain-sum summary row below it (trailing 24h total and, when the shown history is under 24h, the shown-window total)
 - `weather/static/weather/js/vendor/` — self-hosted third-party libraries served locally (no CDN): `chart.umd.min.js` (Chart.js) and `chartjs-adapter-date-fns.bundle.min.js` (time-axis adapter), loaded via `<script>` tags in `index.html`
 - [weather/static/weather/js/constants.js](../weather/static/weather/js/constants.js) — UI configuration constants
 - [weather/static/weather/css/style.css](../weather/static/weather/css/style.css) — UI styling and weather camera layout
@@ -204,7 +204,7 @@ classDiagram
 | GET    | `/`                      | `index`               | Serves the SPA shell (`index.html`)                  |
 | GET    | `/api/stations/`         | `api_stations`        | Returns the cached, filtered station catalogue       |
 | GET    | `/api/station/<int:id>/` | `api_station_data`    | Parsed observations + FMI WFS forecast               |
-| GET    | `/api/station-history/<int:id>/` | `api_station_history` | Returns bucketed temperature/precipitation history for a station |
+| GET    | `/api/station-history/<int:id>/` | `api_station_history` | Returns bucketed temperature/precipitation history for a station, plus `rain_sum_24h` (trailing 24h rain total, independent of the shown history window) |
 | GET    | `/api/settings/`         | `api_settings_get`    | Reads session settings                               |
 | POST   | `/api/settings/save/`    | `api_settings_save`   | Writes whitelisted session settings (CSRF-protected) |
 | GET/POST    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to query params or a JSON body with `lat`/`lon` |

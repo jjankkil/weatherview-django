@@ -81,6 +81,32 @@ _HISTORY_DATA = {
     "has_precipitation": False,
 }
 
+_HISTORY_DATA_WITH_RAIN_12H = {
+    "temp_series": [
+        {"time": "2026-06-28T10:00:00Z", "temperature": 12.5},
+    ],
+    # 12 hourly buckets (shown window) summing to 3.5 mm
+    "precip_series": [
+        {"time": f"2026-06-28T{h:02d}:00:00Z", "precipitation": v}
+        for h, v in zip(range(0, 12), [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, None, 0, 0, 0, 0])
+    ],
+    "has_precipitation": True,
+    "rain_sum_24h": 5.0,
+}
+
+_HISTORY_DATA_WITH_RAIN_24H = {
+    "temp_series": [
+        {"time": "2026-06-28T10:00:00Z", "temperature": 12.5},
+    ],
+    # 24 hourly buckets (shown window == full 24h window)
+    "precip_series": [
+        {"time": f"2026-06-28T{h:02d}:00:00Z", "precipitation": 0.2}
+        for h in range(24)
+    ],
+    "has_precipitation": True,
+    "rain_sum_24h": 4.8,
+}
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -110,10 +136,10 @@ def _mock_external_apis(page: Page) -> None:
     page.route("**/api/station/**", _station_handler)
 
 
-def _mock_all_apis(page: Page) -> None:
+def _mock_all_apis(page: Page, history_data=_HISTORY_DATA) -> None:
     """Register route mocks for all external endpoints including station history."""
     _mock_external_apis(page)
-    page.route("**/api/station-history/**", lambda route: _fulfill_json(route, _HISTORY_DATA))
+    page.route("**/api/station-history/**", lambda route: _fulfill_json(route, history_data))
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -283,3 +309,41 @@ def test_disabling_show_history_hides_trend_section(page: Page, base_url: str) -
 
     # Trend section must now be hidden
     expect(page.locator("#trend-section")).to_be_hidden()
+
+
+def test_rain_summary_shows_both_sums_when_history_shorter_than_24h(page: Page, base_url: str) -> None:
+    """Both rain sum numbers render when the shown history window is under 24h."""
+    _mock_all_apis(page, history_data=_HISTORY_DATA_WITH_RAIN_12H)
+    page.goto(base_url)
+
+    select = page.locator("#station-select")
+    expect(select).to_contain_text("Helsinki / Pasila")
+    select.select_option(value="1001")
+
+    expect(page.locator("#trend-summary")).to_be_visible()
+    expect(page.locator("#trend-summary-24h")).to_be_visible()
+    expect(page.locator("#trend-summary-24h-value")).to_have_text("5.0 mm")
+    expect(page.locator("#trend-summary-total")).to_be_visible()
+    expect(page.locator("#trend-summary-total-value")).to_have_text("3.5 mm")
+
+
+def test_rain_summary_shows_only_24h_sum_when_history_is_24h(page: Page, base_url: str) -> None:
+    """Only the 24h rain sum renders when the shown history window is the full 24h."""
+    _mock_all_apis(page, history_data=_HISTORY_DATA_WITH_RAIN_24H)
+    page.goto(base_url)
+
+    # Set history length to 24h before selecting a station, so the initial
+    # history fetch already reflects the 24h window.
+    page.locator("#settings-btn").click()
+    expect(page.locator("#settings-modal")).to_be_visible()
+    page.locator("#history-hours-input").fill("24")
+    page.locator("#settings-save").click()
+
+    select = page.locator("#station-select")
+    expect(select).to_contain_text("Helsinki / Pasila")
+    select.select_option(value="1001")
+
+    expect(page.locator("#trend-summary")).to_be_visible()
+    expect(page.locator("#trend-summary-24h")).to_be_visible()
+    expect(page.locator("#trend-summary-24h-value")).to_have_text("4.8 mm")
+    expect(page.locator("#trend-summary-total")).to_be_hidden()

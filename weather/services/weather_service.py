@@ -350,12 +350,18 @@ class WeatherService(HttpClient):
         precipitation is bucketed hourly so the chart renders exactly one bar per hour.
 
         @param station_id  Digitraffic station identifier.
-        @param hours       Window length in hours (1–24; clamped internally).
+        @param hours       Window length in hours (1–24; clamped internally). Only limits
+                            the returned temp_series/precip_series; precipitation is always
+                            summed over a trailing 24h window for @c rain_sum_24h regardless
+                            of @p hours, so the UI can show a fixed-24h rain total alongside
+                            the shown-window total.
         @return dict with keys:
                 - temp_series:  list of {time (ISO 8601 UTC), temperature (float|None)}
                 - precip_series: list of {time (ISO 8601 UTC), precipitation (float|None)}
                 - has_precipitation: True if the station has a precipitation sensor
                   (regardless of whether it rained during the window)
+                - rain_sum_24h: total precipitation (mm) over the trailing 24 hours,
+                  or None if the station has no precipitation sensor
         @details
         - Temperature sensor: ID 1 (ILMA, °C), averaged per 10-minute bucket.
         - Precipitation sensor: ID 23 (SADE_INTENSITEETTI, mm/h), averaged per hourly bucket.
@@ -363,8 +369,9 @@ class WeatherService(HttpClient):
         - Returns empty series on HTTP error; has_error/error_message reflect the failure.
         """
         hours = max(1, min(24, hours))
+        fetch_hours = 24  # always fetch a full 24h window so rain_sum_24h is independent of `hours`
         now = datetime.datetime.now(datetime.timezone.utc)
-        from_dt = now - datetime.timedelta(hours=hours)
+        from_dt = now - datetime.timedelta(hours=fetch_hours)
         url = (
             Urls.WEATHER_STATION_HISTORY_URL.format(station_id)
             + f"?from={from_dt.strftime(Formats.UTC_TIMESTAMP_FORMAT)}"
@@ -372,7 +379,7 @@ class WeatherService(HttpClient):
         )
         raw = self._get(url)
         if self.has_error or not raw:
-            return {"temp_series": [], "precip_series": [], "has_precipitation": False}
+            return {"temp_series": [], "precip_series": [], "has_precipitation": False, "rain_sum_24h": None}
 
         temp_sums: dict[str, float] = {}
         temp_counts: dict[str, int] = {}
@@ -404,34 +411,44 @@ class WeatherService(HttpClient):
 
         # Ceil from_dt to the next complete hour so both series start at a clean
         # hour boundary with no empty leading stub (e.g. from_dt=03:35 → start=04:00).
-        hour_start = from_dt.replace(minute=0, second=0, microsecond=0)
-        if from_dt.minute or from_dt.second or from_dt.microsecond:
-            hour_start += datetime.timedelta(hours=1)
+        def ceil_hour(dt: datetime.datetime) -> datetime.datetime:
+            start = dt.replace(minute=0, second=0, microsecond=0)
+            if dt.minute or dt.second or dt.microsecond:
+                start += datetime.timedelta(hours=1)
+            return start
 
-        # Build temperature series at 10-minute resolution
+        hour_start = ceil_hour(from_dt)  # 24h back — used for the rain_sum_24h window
+        temp_hour_start = ceil_hour(now - datetime.timedelta(hours=hours))  # shown window
+
+        # Build temperature series at 10-minute resolution, limited to the shown window
         temp_series: list[dict] = []
         step = datetime.timedelta(minutes=self._TEMP_BUCKET_MINUTES)
-        current = hour_start
+        current = temp_hour_start
         while current <= now:
             bucket = current.strftime(Formats.UTC_TIMESTAMP_FORMAT)
             temp = round(temp_sums[bucket] / temp_counts[bucket], 1) if bucket in temp_counts else None
             temp_series.append({"time": bucket, "temperature": temp})
             current += step
 
-        # Build precipitation series at hourly resolution
-        precip_series: list[dict] = []
+        # Build precipitation series at hourly resolution over the full 24h window,
+        # then trim to the shown window for the chart (rain_sum_24h uses the full series).
+        precip_series_24h: list[dict] = []
         current = hour_start
         while current <= now:
             bucket = current.strftime(Formats.UTC_TIMESTAMP_FORMAT)
             precip = round(precip_sums[bucket] / precip_counts[bucket], 2) if bucket in precip_counts else None
-            precip_series.append({"time": bucket, "precipitation": precip})
+            precip_series_24h.append({"time": bucket, "precipitation": precip})
             current += datetime.timedelta(hours=1)
 
         has_precipitation = bool(precip_counts)  # True whenever the station has a precip sensor
+        rain_sum_24h = round(sum(p["precipitation"] or 0.0 for p in precip_series_24h), 1) if has_precipitation else None
+        precip_series = [p for p in precip_series_24h if p["time"] >= temp_hour_start.strftime(Formats.UTC_TIMESTAMP_FORMAT)]
+
         return {
             "temp_series": temp_series,
             "precip_series": precip_series,
             "has_precipitation": has_precipitation,
+            "rain_sum_24h": rain_sum_24h,
         }
 
     def build_full_weather_response(        self,

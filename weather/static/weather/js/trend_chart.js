@@ -17,6 +17,7 @@ let _chartInstance = null;
  *   - temp_series:   Array of {time (ISO 8601 UTC), temperature (°C|null)}
  *   - precip_series: Array of {time (ISO 8601 UTC), precipitation (mm/h|null)}
  *   - has_precipitation: boolean
+ *   - rain_sum_24h: number|null, total precipitation (mm) over the trailing 24h
  */
 export function renderTrendChart(historyData) {
   const section = document.getElementById('trend-section');
@@ -34,7 +35,7 @@ export function renderTrendChart(historyData) {
 
   section.classList.remove('hidden');
 
-  const { temp_series, precip_series = [], has_precipitation } = historyData;
+  const { temp_series, precip_series = [], has_precipitation, rain_sum_24h = null } = historyData;
 
   // Temperature: {x: ISO timestamp, y: °C}
   const tempData = temp_series.map(b => ({ x: b.time, y: b.temperature }));
@@ -61,6 +62,8 @@ export function renderTrendChart(historyData) {
       order: 1,
     },
   ];
+
+  renderRainSummary(precip_series, has_precipitation, rain_sum_24h);
 
   if (has_precipitation) {
     // Precipitation: {x: ISO timestamp, y: mm/h} — one point per hour.
@@ -146,6 +149,43 @@ export function renderTrendChart(historyData) {
       },
     },
   });
+}
+
+/**
+ * @brief Render the two rain sum numbers below the chart: a fixed trailing-24h
+ *   total (from the backend, independent of the shown history window) and the
+ *   total over the currently shown history window. The shown-window total is
+ *   hidden when the history length is 24h, since it would equal the 24h total.
+ * @param {Array} precipSeries  Shown-window series: {time, precipitation (mm/h|null)}, one per hour.
+ * @param {boolean} hasPrecipitation  Whether the station reports precipitation at all.
+ * @param {?number} rainSum24h  Total precipitation (mm) over the trailing 24h, from the backend.
+ */
+function renderRainSummary(precipSeries, hasPrecipitation, rainSum24h) {
+  const summary = document.getElementById('trend-summary');
+  const item24h = document.getElementById('trend-summary-24h');
+  const itemShown = document.getElementById('trend-summary-total');
+  if (!summary || !item24h || !itemShown) return;
+
+  if (!hasPrecipitation || rainSum24h == null) {
+    summary.classList.add('hidden');
+    return;
+  }
+
+  document.getElementById('trend-summary-24h-value').textContent = `${rainSum24h.toFixed(1)} mm`;
+  document.getElementById('trend-summary-24h-label').textContent = labels().rainSum24h;
+  item24h.classList.remove('hidden');
+
+  const shownHours = precipSeries.length;
+  if (shownHours > 0 && shownHours < 24) {
+    const shownSum = precipSeries.reduce((acc, b) => acc + (b.precipitation || 0), 0);
+    document.getElementById('trend-summary-total-value').textContent = `${shownSum.toFixed(1)} mm`;
+    document.getElementById('trend-summary-total-label').textContent = labels().rainSumTotal.replace('{h}', shownHours);
+    itemShown.classList.remove('hidden');
+  } else {
+    itemShown.classList.add('hidden');
+  }
+
+  summary.classList.remove('hidden');
 }
 
 /**

@@ -111,6 +111,11 @@ point in time. The chart isn't scrollable or zoomable — it always shows the fu
 configured window at once, and redraws whenever new data arrives or you change the
 history length in settings.
 
+For stations that report precipitation, two rain totals (in mm) appear below the
+chart: the total rainfall over the last 24 hours, and the total over your configured
+history window. If your history length is set to 24 hours, only one number is shown
+since the two would be identical.
+
 If there's no history data available for a station, or the history chart is turned
 off in settings, this section is simply left out.
 
