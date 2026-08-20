@@ -332,6 +332,9 @@ def test_rain_summary_shows_only_24h_sum_when_history_is_24h(page: Page, base_ur
     _mock_all_apis(page, history_data=_HISTORY_DATA_WITH_RAIN_24H)
     page.goto(base_url)
 
+    # Wait for stations to load — confirms JS event listeners are attached
+    expect(page.locator("#station-select")).to_contain_text("Helsinki / Pasila")
+
     # Set history length to 24h before selecting a station, so the initial
     # history fetch already reflects the 24h window.
     page.locator("#settings-btn").click()
