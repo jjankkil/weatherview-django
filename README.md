@@ -99,6 +99,10 @@ Open <http://127.0.0.1:8000/> in your browser. See the [Development Guide](docs/
 - Forecast data: **Finnish Meteorological Institute (FMI)** open data, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - History trend chart: **[Chart.js](https://www.chartjs.org/)** and its date-fns time adapter, licensed under [MIT](https://opensource.org/licenses/MIT) — self-hosted under `weather/static/weather/js/vendor/` (no CDN dependency)
 
+## Development Process
+
+This project was built with AI-assisted development (Claude), covering roughly the full lifecycle — architecture, implementation, testing, and documentation. I directed the design decisions, reviewed and validated the generated code, and handled deployment and configuration myself.
+
 ## License
 
 WeatherView itself is licensed under the [MIT License](LICENSE). The data sources
