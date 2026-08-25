@@ -85,7 +85,6 @@ _DEFAULT_SETTINGS = {  #!< Default settings applied to all sessions
     "current_station_name": "",  #!< Display name of currently selected station
     "language": "fi",  #!< Display language ("fi" for Finnish, "sv" for Swedish, "en" for English)
     "show_camera": True,  #!< Whether to display weather camera images (default: enabled)
-    "follow_location": False,  #!< Whether to always use geolocation to select the nearest station
     "show_history": True,  #!< Whether to display the temperature/precipitation history trend chart
     "history_hours": 12,  #!< History window length in hours (1–24)
 }
@@ -246,7 +245,6 @@ def api_settings_get(request):
             - current_station_name: Display name of selected station
             - language: Display language code ("fi" or "en")
             - show_camera: Whether to display camera images (boolean)
-            - follow_location: Whether to always use geolocation to select the nearest station (boolean)
     @details
     - HTTP method: GET only
     - Returns merged defaults + session values
@@ -333,11 +331,6 @@ def _validate_settings_body(body: dict) -> tuple[dict, str | None]:
         if not isinstance(val, bool):
             return {}, "show_camera must be a boolean"
         cleaned["show_camera"] = val
-    if "follow_location" in body:
-        val = body["follow_location"]
-        if not isinstance(val, bool):
-            return {}, "follow_location must be a boolean"
-        cleaned["follow_location"] = val
     if "current_station_id" in body:
         val = body["current_station_id"]
         if val is not None and (isinstance(val, bool) or not isinstance(val, int) or val <= 0):
@@ -378,7 +371,7 @@ def api_settings_save(request):
     - CSRF protection: requires X-CSRFToken request header (token served via
       <meta name="csrf-token"> in the page)
     - Allowed keys (whitelist): current_station_id, current_station_name,
-      language, show_camera, follow_location
+      language, show_camera
     - Partial updates: only provided keys are updated; others retain current values
     - Values are type-checked; invalid types or values return HTTP 400
     - All updates persisted to request.session for the current user

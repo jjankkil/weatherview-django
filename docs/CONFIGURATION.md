@@ -77,7 +77,6 @@ The app also stores a small set of user preferences in signed-cookie sessions:
 
 - `language` (`fi`, `sv`, or `en`)
 - `show_camera` (boolean)
-- `follow_location` (boolean)
 - `show_history` (boolean)
 - `history_hours` (integer from 1 to 24)
 - `current_station_id` / `current_station_name`

@@ -80,6 +80,7 @@ html, body {
   transition: background 0.15s, border-color 0.15s;
 }
 .btn-icon:hover { background: var(--border); border-color: var(--accent); }
+.btn-icon:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Language dropdown ────────────────────────────────────── */
 .lang-dropdown {

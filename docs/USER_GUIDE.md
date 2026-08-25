@@ -20,12 +20,14 @@ yet), it tries to find the weather station closest to you:
   offer the location prompt at all, and the app falls back immediately.
 
 Once you've picked a station yourself, that choice is remembered (see "Settings and
-what the app remembers" below), so this automatic search normally only happens once — unless you
-turn on the "Use my location" setting, which makes it search for the nearest station
-again every time you open (or reload) the app. Note that this only happens when the
-page loads: while the app is open and refreshing itself automatically or when you
-click "Päivitä nyt", it keeps showing the station already selected rather than
-re-checking your location.
+what the app remembers" below), so this automatic search only happens once. Note that
+this only happens when the page loads: while the app is open and refreshing itself
+automatically or when you click "Päivitä nyt", it keeps showing the station already
+selected rather than re-checking your location.
+
+If you want to re-check your location at any other time, click the **⌖ locate
+button** next to the station dropdown. It repeats the same nearest-station search on
+demand and immediately refreshes the weather data for whatever station it finds.
 
 The first time you visit, you'll also see a small cookie/notice banner at the bottom
 of the page. It only needs to be dismissed once.
@@ -34,6 +36,11 @@ of the page. It only needs to be dismissed once.
 
 - **Dropdown list**: your 10 most recently viewed stations are grouped at the top,
   followed by the full list of 400+ stations.
+- **Locate**: the ⌖ button asks your browser for your current location and selects
+  the station closest to it, the same way the app does automatically on first visit —
+  except you can trigger it again at any time. If location access is denied,
+  unsupported, or times out, it falls back to the first station in the list, the same
+  as the automatic search does.
 - **Search**: the search button opens a small window where you can type part of a
   station's name. Matches are filtered as you type and the matching letters are
   highlighted. Selecting a result works exactly like picking it from the dropdown.
@@ -80,17 +87,17 @@ below the observation card.
 
 ## Settings and what the app remembers
 
-The gear/settings button opens a small panel where you can turn the camera pictures,
-"Use my location", and the history chart on or off, and choose how many hours of
-history to display. Changes here only take effect once you click **Save** — closing
-the panel without saving discards them.
+The gear/settings button opens a small panel where you can turn the camera pictures
+and the history chart on or off, and choose how many hours of history to display.
+Changes here only take effect once you click **Save** — closing the panel without
+saving discards them.
 
 Between visits, the app remembers:
 
 - Your selected station and your 10 most recently viewed stations.
 - Your chosen language.
-- Your settings (camera on/off, "Use my location" on/off, history chart on/off, and
-  how many hours of history to show).
+- Your settings (camera on/off, history chart on/off, and how many hours of history
+  to show).
 
 This is all tied to your browser — it isn't shared across different browsers or
 devices, and clearing your browser's cookies/site data resets it.
@@ -121,11 +128,12 @@ off in settings, this section is simply left out.
 
 ## Privacy
 
-- **"Use my location"**: when you allow it, your exact coordinates are sent to the
-  server only to work out which station is nearest to you. They're used for that one
-  calculation and then discarded — they are not saved, logged, or kept anywhere, and
-  they're sent in a way that specifically avoids them ending up in the server's
-  access logs.
+- **Location access**: whenever the app looks up your nearest station — automatically
+  on first visit, or on demand via the ⌖ locate button — your exact coordinates are
+  sent to the server only to work out which
+  station is nearest to you. They're used for that one calculation and then discarded
+  — they are not saved, logged, or kept anywhere, and they're sent in a way that
+  specifically avoids them ending up in the server's access logs.
 - **Your IP address**: like any web server, WeatherView sees the IP address your
   browser connects from. It's used solely to apply a rate limit (to stop any one
   visitor from overloading the service) and is kept only as a short-lived request

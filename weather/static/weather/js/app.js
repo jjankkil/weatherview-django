@@ -32,19 +32,15 @@ function selectStation(id, name) {
  */
 async function onSettingsSave() {
   const showCamera = dom.cameraToggle.checked;
-  const followLocation = dom.followLocationToggle.checked;
   const showHistory = dom.showHistoryToggle.checked;
   const historyHours = Math.min(24, Math.max(1, parseInt(dom.historyHoursInput.value, 10) || 24));
   state.showCamera = showCamera;
-  state.followLocation = followLocation;
   state.showHistory = showHistory;
   state.historyHours = historyHours;
-  await saveSettings({ show_camera: showCamera, follow_location: followLocation, show_history: showHistory, history_hours: historyHours });
+  await saveSettings({ show_camera: showCamera, show_history: showHistory, history_hours: historyHours });
   closeSettings();
   setVisible(dom.cameraPanel, showCamera);
-  if (followLocation) {
-    await selectNearestByGeolocation(state.stations);
-  } else if (state.currentStationId) {
+  if (state.currentStationId) {
     fetchWeather(state.currentStationId);
     if (showHistory) {
       fetchStationHistory(state.currentStationId).then(renderTrendChart);
@@ -170,6 +166,8 @@ function initEvents() {
     else if (dx > 40 && carousel.index > 0) carouselGoTo(carousel.index - 1);
   }, { passive: true });
 
+  dom.stationLocateBtn.addEventListener('click', () => selectNearestByGeolocation(state.stations));
+
   dom.stationSearchBtn.addEventListener('click', () => openStationSearch(selectStation));
   dom.stationSearchClose.addEventListener('click', closeStationSearch);
   dom.stationSearchModal.addEventListener('click', e => {
@@ -231,9 +229,7 @@ async function init() {
 
   populateStations(stations);
 
-  if (state.followLocation) {
-    await selectNearestByGeolocation(stations);
-  } else if (state.currentStationId) {
+  if (state.currentStationId) {
     dom.stationSelect.value = String(state.currentStationId);
     fetchWeather(state.currentStationId);
   } else {

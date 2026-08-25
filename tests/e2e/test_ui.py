@@ -176,6 +176,46 @@ def test_selecting_station_renders_weather_data(page: Page, base_url: str) -> No
     expect(page.locator("#weather-card")).to_be_visible()
 
 
+def test_locate_button_selects_nearest_station_and_refreshes(page: Page, base_url: str) -> None:
+    """Clicking the locate button selects the nearest station and refreshes its data.
+
+    Geolocation permission is intentionally NOT granted, so the page-load
+    auto-select falls back to the first station (1001) without touching
+    /api/nearest-station/. Only after granting permission and clicking the
+    locate button does /api/nearest-station/ resolve to station 1002 — this
+    proves the button works independent of the initial page-load geolocation
+    fallback path.
+    """
+    _mock_external_apis(page)
+    page.route(
+        "**/api/nearest-station/",
+        lambda route: _fulfill_json(
+            route,
+            {
+                "id": 1002,
+                "name": "TAMPERE / AIRANTEENTIE",
+                "formatted_name": "Tampere / Airanteentie",
+                "lat": 61.497,
+                "lon": 23.763,
+            },
+        ),
+    )
+    page.goto(base_url)
+
+    # Geolocation-fallback initial fetch settles on the first station (1001)
+    select = page.locator("#station-select")
+    expect(select).to_contain_text("Helsinki / Pasila")
+    expect(page.locator("#temp-value")).to_have_text("-2.5 °C")
+
+    # Now grant geolocation and click the locate button
+    page.context.grant_permissions(["geolocation"])
+    page.context.set_geolocation({"latitude": 61.5, "longitude": 23.8})
+    page.locator("#station-locate-btn").click()
+
+    expect(select).to_have_value("1002")
+    expect(page.locator("#temp-value")).to_have_text("5.0 °C")
+
+
 def test_language_switch_updates_all_labels(page: Page, base_url: str) -> None:
     """Switching to English updates the app title and static UI labels."""
     _mock_external_apis(page)

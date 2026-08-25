@@ -74,6 +74,13 @@
             <option value="">— Ladataan asemia… —</option>
           </select>
           <button
+            id="station-locate-btn"
+            class="btn-icon station-search-btn"
+            title="Käytä sijaintiani"
+          >
+            ⌖
+          </button>
+          <button
             id="station-search-btn"
             class="btn-icon station-search-btn"
             title="Hae asema"
@@ -347,13 +354,6 @@
               >Näytä kelikameroiden kuvat:</label
             >
             <input id="camera-toggle" type="checkbox" checked />
-          </div>
-
-          <div class="follow-location-setting">
-            <label id="follow-location-label" for="follow-location-toggle"
-              >Käytä sijaintiasi aseman valintaan:</label
-            >
-            <input id="follow-location-toggle" type="checkbox" />
           </div>
 
           <div class="camera-setting">

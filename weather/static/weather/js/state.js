@@ -9,7 +9,6 @@ import { MRU_KEY, MRU_MAX } from './constants.js';
  * @property {Array}    stations          List of available weather stations.
  * @property {?number}  currentStationId  ID of the currently selected weather station.
  * @property {boolean}  showCamera        Whether to display weather camera images.
- * @property {boolean}  followLocation    Whether to always use geolocation to select nearest station.
  * @property {?number}  refreshTimer      Timeout ID for the scheduled weather refresh.
  * @property {?number}  countdownTimer    Interval ID for the countdown display timer.
  * @property {?number}  refreshDueAt      Epoch ms when new data will be available (null if unknown).
@@ -20,7 +19,6 @@ export const state = {
   stations: [],
   currentStationId: null,
   showCamera: true,
-  followLocation: false,
   showHistory: true,
   historyHours: 12,
   refreshTimer: null,

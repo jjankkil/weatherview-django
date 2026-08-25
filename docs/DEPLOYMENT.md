@@ -172,6 +172,7 @@ server {
 
     location /static/ {
         alias /opt/weatherview/staticfiles/;
+        add_header Cache-Control "no-cache";
     }
 
     location / {
@@ -214,5 +215,8 @@ sudo systemctl restart weatherview
 sudo systemctl status weatherview
 ```
 
-After deploying, hard-refresh the browser (Ctrl+Shift+R) once — static filenames are not
-content-hashed, so browsers may otherwise serve a cached copy of the old CSS/JS.
+Static filenames are not content-hashed, so the `location /static/` block sends
+`Cache-Control: no-cache`, forcing browsers to revalidate (a cheap 304 when unchanged)
+instead of trusting a cached copy. If a deployed Nginx config predates this header, add it
+manually and `sudo systemctl reload nginx`, or hard-refresh the browser (Ctrl+Shift+R) once
+as a one-off workaround.

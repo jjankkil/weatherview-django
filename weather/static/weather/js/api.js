@@ -26,7 +26,6 @@ export async function fetchSettings() {
     if (data.language) state.lang = data.language;
     if (data.current_station_id) state.currentStationId = data.current_station_id;
     if (data.show_camera !== undefined) state.showCamera = data.show_camera;
-    if (data.follow_location !== undefined) state.followLocation = data.follow_location;
     if (data.show_history !== undefined) state.showHistory = data.show_history;
     if (data.history_hours !== undefined) state.historyHours = data.history_hours;
   } catch (_) { /* ignore */ }

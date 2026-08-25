@@ -762,16 +762,6 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(r.status_code, 400)
         self.assertIn("show_camera", r.json()["error"])
 
-    def test_settings_save_invalid_follow_location_type_returns_400(self):
-        """@brief POST /api/settings/save/ with follow_location as a non-boolean returns HTTP 400."""
-        r = self._post(
-            "/api/settings/save/",
-            data='{"follow_location": 1}',
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 400)
-        self.assertIn("follow_location", r.json()["error"])
-
     def test_settings_save_invalid_station_id_returns_400(self):
         """@brief POST /api/settings/save/ with an invalid current_station_id returns HTTP 400."""
         for val in [0, -1, True, "abc"]:

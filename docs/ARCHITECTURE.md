@@ -209,7 +209,7 @@ classDiagram
 | POST   | `/api/settings/save/`    | `api_settings_save`   | Writes whitelisted session settings (CSRF-protected) |
 | GET/POST    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to query params or a JSON body with `lat`/`lon` |
 
-Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `follow_location`, `show_history`, and `history_hours`. Only those keys are accepted; other keys are ignored and invalid values return HTTP 400 ([views.py](../weather/views.py)).
+Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `show_history`, and `history_hours`. Only those keys are accepted; other keys are ignored and invalid values return HTTP 400 ([views.py](../weather/views.py)).
 
 ---
 
@@ -230,7 +230,7 @@ sequenceDiagram
     Browser->>Django: GET /
     Django-->>Browser: index.html + static
     Browser->>Django: GET /api/settings/
-    Django-->>Browser: {language, current_station_id, show_camera, follow_location, ...}
+    Django-->>Browser: {language, current_station_id, show_camera, ...}
     Browser->>Django: GET /api/stations/
     Django->>Cache: get('weather_station_list')
     alt cache miss
@@ -241,7 +241,7 @@ sequenceDiagram
     end
     Django-->>Browser: [{id, name, formatted_name, lat, lon}, ...]
     Browser->>Browser: render dropdown, restore MRU from localStorage
-    alt follow_location enabled or no saved station
+    alt no saved station
         Browser->>Browser: navigator.geolocation.getCurrentPosition()
         Browser->>Django: GET /api/nearest-station/?lat=…&lon=…
         Django-->>Browser: nearest station dict
@@ -376,7 +376,6 @@ flowchart TB
     S1 -.holds.-> K2["language (fi|sv|en)"]
     S1 -.holds.-> K3["current_station_id / _name"]
     S1 -.holds.-> K6["show_camera (boolean)"]
-    S1 -.holds.-> K8["follow_location (boolean)"]
     S2 -.holds.-> K4["parsed WeatherStationList"]
     S2 -.holds.-> K9["IP rate-limit sliding windows"]
     S2 -.holds.-> K10["per-station response + _next_update_at"]
@@ -434,11 +433,9 @@ flowchart TD
     A([Page load]) --> B[GET /api/settings/]
     B --> C[GET /api/stations/]
     C --> D[Populate dropdown<br/>+ MRU group from localStorage]
-    D --> E{follow_location<br/>enabled?}
-    E -->|yes| GEO[selectNearestByGeolocation]
-    E -->|no| E2{Has saved<br/>station?}
+    D --> E2{Has saved<br/>station?}
     E2 -->|yes| F[GET /api/station/id]
-    E2 -->|no| GEO
+    E2 -->|no| GEO[selectNearestByGeolocation]
     GEO -->|position obtained| NS[GET /api/nearest-station/]
     GEO -->|denied / unavailable| F1["Use stations[0]"]
     NS --> F
@@ -528,14 +525,19 @@ Related code:
 
 ### 10.1 Overview
 
-On page load, `app.js` checks the `follow_location` session setting. If it is `true`, or if no station has been saved yet, `selectNearestByGeolocation()` is called. This function:
+`selectNearestByGeolocation(stations)` in [geo.js](../weather/static/weather/js/geo.js) is the shared entry point for finding and selecting the nearest station. It is called from two places:
+
+- **On page load** (`app.js`): if no station has been saved yet.
+- **On demand**: clicking the **⌖ locate button** next to the station dropdown calls it directly at any time.
+
+The function itself:
 
 1. Calls `navigator.geolocation.getCurrentPosition()` (8-second timeout).
-2. On success, sends `GET /api/nearest-station/?lat=…&lon=…` to the Django backend.
+2. On success, sends `POST /api/nearest-station/` with a JSON body `{lat, lon}` to the Django backend.
 3. The backend computes haversine distance from the supplied coordinates to every station in the cached list and returns the closest one.
-4. The frontend selects that station in the dropdown and fetches its weather data.
+4. The frontend selects that station in the dropdown, persists it via `saveSettings()` (`current_station_id`/`current_station_name`), and fetches its weather data.
 
-If geolocation fails for any reason (permission denied, timeout, API error, or non-secure context), the function falls back to the first alphabetically sorted station and logs a timestamped `console.warn`.
+If geolocation fails for any reason (permission denied, timeout, API error, or non-secure context), the function falls back to the first alphabetically sorted station, persists that choice the same way, and logs a timestamped `console.warn`.
 
 ### 10.2 Sequence diagram
 
@@ -543,28 +545,25 @@ If geolocation fails for any reason (permission denied, timeout, API error, or n
 sequenceDiagram
     autonumber
     actor User
-    participant Browser as app.js
+    participant Browser as app.js / geo.js
     participant Geo as Browser Geolocation API
     participant Django
 
+    Note over User,Browser: Triggered on page load (no saved station)<br/>or on demand via the ⌖ locate button
     Browser->>Geo: getCurrentPosition() (timeout 8s)
     alt permission granted
         Geo-->>Browser: {latitude, longitude}
-        Browser->>Django: GET /api/nearest-station/?lat=…&lon=…
+        Browser->>Django: POST /api/nearest-station/ {lat, lon}
         Django->>Django: haversine distance over cached station list
         Django-->>Browser: {id, name, formatted_name, lat, lon}
-        Browser->>Browser: select station, fetchWeather(id)
+        Browser->>Browser: select station, saveSettings(), fetchWeather(id)
     else denied / unavailable / non-secure context
         Geo-->>Browser: PositionError
-        Browser->>Browser: console.warn + fallback to stations[0]
+        Browser->>Browser: console.warn + fallback to stations[0], saveSettings()
     end
 ```
 
-### 10.3 Settings integration
-
-The **"Use my location"** checkbox in the ⚙️ Settings modal maps to the `follow_location` boolean in the session. When enabled, geolocation runs on every page load regardless of whether a station was previously saved. When disabled, geolocation still runs once on first visit (no saved station), and subsequent visits restore the manually selected station.
-
-### 10.4 Secure context requirement
+### 10.3 Secure context requirement
 
 The browser Geolocation API is only available in **secure contexts** (HTTPS or `localhost`). On a plain HTTP connection the API object is unavailable and the fallback fires immediately. For local development, access the server via `http://localhost:8000` to satisfy the secure-context requirement without needing a certificate.
 
@@ -573,7 +572,7 @@ The browser Geolocation API is only available in **secure contexts** (HTTPS or `
 ## 11. Testing Surfaces
 
 - **Unit / integration (offline)** — [weather/tests.py](../weather/tests.py). HTTP is mocked; covers helpers, FMI physics, FMI symbol mapping, JSON/XML parsing, per-station caching logic (`next_update_at`, cache hit/miss, `_next_update_at` not leaked), and all view endpoints. Run: `python manage.py test weather`.
-- **Playwright browser tests** — [tests/e2e/test_ui.py](../tests/e2e/test_ui.py). Eight headless Chromium tests; external API calls mocked via `page.route()`. Covers: page load + station list populates; station selection renders weather; language switch updates all labels; language persists across reload; cookie consent banner; trend section visibility; settings modal controls. Run: `pytest tests/e2e/` (requires `pip install -r requirements-dev.txt` and `playwright install chromium`).
+- **Playwright browser tests** — [tests/e2e/test_ui.py](../tests/e2e/test_ui.py). Eleven headless Chromium tests; external API calls mocked via `page.route()`. Covers: page load + station list populates; station selection renders weather; locate button selects nearest station and refreshes; language switch updates all labels; language persists across reload; cookie consent banner; trend section visibility; settings modal controls; rain summary display. Run: `pytest tests/e2e/` (requires `pip install -r requirements-dev.txt` and `playwright install chromium`).
 - **Robot Framework tests** — [tests/robot/](../tests/robot/). Optional, separate suite covering three layers: API tests against the real Django endpoints (`api/`, some tagged `live` for calls that hit real Digitraffic/FMI), browser E2E tests (`e2e/`, using `tests/robot/fixtures/fixture_server.py` — a local stand-in for the Digitraffic API, selected via `WVD_DIGITRAFFIC_BASE_URL` — for deterministic data instead of live network calls), and offline unit tests of `weather/services/*` pure functions (`unit/`, via `tests/robot/libraries/WeatherServiceLibrary.py`). Requires `pip install -r requirements-robot.txt` (kept separate from `requirements-dev.txt` so it's opt-in) and, for the browser suite, Node.js 20+ plus `rfbrowser init`. Run from `tests/robot/`: `robot --outputdir results .` (everything), `robot --outputdir results -i smoke .` (fast, no network). See [DEVELOPMENT.md](DEVELOPMENT.md#robot-framework-tests-optional).
 - **Live smoke test** — [scripts/smoke_test.py](../scripts/smoke_test.py). Hits real Digitraffic and FMI open data endpoints (no API key needed).
 - **CI** — `.github/workflows/ci.yml` runs three jobs: `test` (Django unit tests + `manage.py check`, with a Redis service container), `browser-tests` (Playwright e2e), and `robot-tests` (Robot Framework smoke subset, uploads the HTML report as a build artifact).

@@ -14,13 +14,11 @@ Default Settings Are Returned
     Dictionary Should Contain Key    ${body}    current_station_name
     Dictionary Should Contain Key    ${body}    language
     Dictionary Should Contain Key    ${body}    show_camera
-    Dictionary Should Contain Key    ${body}    follow_location
     Dictionary Should Contain Key    ${body}    show_history
     Dictionary Should Contain Key    ${body}    history_hours
     Should Be Equal        ${body}[language]      fi
     Should Be Equal        ${body}[current_station_id]    ${None}
     Should Be True          ${body}[show_camera]
-    Should Not Be True      ${body}[follow_location]
     Should Be True          ${body}[show_history]
     Should Be Equal As Integers    ${body}[history_hours]    12
 
