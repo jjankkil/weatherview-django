@@ -92,9 +92,9 @@ Key source locations:
 - [weather/static/weather/js/app.js](../weather/static/weather/js/app.js) — bootstrap + event wiring
 - [weather/static/weather/js/api.js](../weather/static/weather/js/api.js) — fetch wrappers (settings, stations, station data, countdown)
 - [weather/static/weather/js/render.js](../weather/static/weather/js/render.js) — DOM rendering, i18n labels, `populateStations`, `forecastGoTo`
-- [weather/static/weather/js/state.js](../weather/static/weather/js/state.js) — global app state object, `forecastCarousel`, `FORECAST_PAGE_SIZE`, MRU helpers
+- [weather/static/weather/js/state.js](../weather/static/weather/js/state.js) — global app state object, `forecastCarousel`, `FORECAST_PAGE_SIZE`, MRU helpers, cached user location (`loadUserLocation`/`saveUserLocation`)
 - [weather/static/weather/js/geo.js](../weather/static/weather/js/geo.js) — geolocation / nearest-station selection
-- [weather/static/weather/js/camera.js](../weather/static/weather/js/camera.js) — weather camera module (carousel, lightbox, station lookup)
+- [weather/static/weather/js/camera.js](../weather/static/weather/js/camera.js) — weather camera module (carousel, lightbox, station lookup, distance/direction captions)
 - [weather/static/weather/js/trend_chart.js](../weather/static/weather/js/trend_chart.js) — temperature/precipitation history trend chart (Chart.js) plus the rain-sum summary row below it (trailing 24h total and, when the shown history is under 24h, the shown-window total)
 - `weather/static/weather/js/vendor/` — self-hosted third-party libraries served locally (no CDN): `chart.umd.min.js` (Chart.js) and `chartjs-adapter-date-fns.bundle.min.js` (time-axis adapter), loaded via `<script>` tags in `index.html`
 - [weather/static/weather/js/constants.js](../weather/static/weather/js/constants.js) — UI configuration constants
@@ -482,24 +482,37 @@ The frontend displays weather camera images for each station. Camera logic lives
 
 ### 9.1 Module structure
 
-| Export                                       | Description                                                                        |
-| -------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `initCamera(state, dom, labels, setVisible)` | One-time setup; stores injected deps                                               |
-| `showCameraForStation(stationId)`            | Finds the nearest camera to the station, fetches its presets, renders the carousel |
-| `carousel`                                   | `{ index, slides }` — current carousel state                                       |
-| `lightbox`                                   | `{ index }` — current lightbox state                                               |
-| `carouselGoTo(i)`                            | Navigate the carousel to slide `i`                                                 |
-| `lightboxGoTo(i)`                            | Navigate the lightbox to slide `i`                                                 |
-| `openLightbox(i)`                            | Open the lightbox at slide `i`                                                     |
-| `closeLightbox()`                            | Close the lightbox                                                                 |
+| Export                                           | Description                                                                                     |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `initCamera(state, dom, labels, setVisible)`     | One-time setup; stores injected deps                                                            |
+| `showCameraForStation(stationId)`                | Finds the nearest camera to the station, fetches its presets, renders the carousel              |
+| `showStationDistance(stationId)`                 | Shows distance/direction from the cached browser location to the station; hidden if none cached |
+| `haversineKm(lat1, lon1, lat2, lon2)`            | Great-circle distance in km between two coordinates                                             |
+| `bearingDeg(lat1, lon1, lat2, lon2)`             | Compass bearing in degrees from point 1 to point 2                                              |
+| `bearingLabel(deg, lang)`                        | Converts a bearing in degrees to an 8-point compass word in the given language                  |
+| `formatDistance(distanceKm)`                     | Formats a distance in meters, switching to km with one decimal place at 1000 m                  |
+| `formatDistanceLabel(distanceKm, bearing, lang)` | Combines `formatDistance` and `bearingLabel` into e.g. "1.8 km luoteeseen"                      |
+| `carousel`                                       | `{ index, slides }` — current carousel state                                                    |
+| `lightbox`                                       | `{ index }` — current lightbox state                                                            |
+| `carouselGoTo(i)`                                | Navigate the carousel to slide `i`                                                              |
+| `lightboxGoTo(i)`                                | Navigate the lightbox to slide `i`                                                              |
+| `openLightbox(i)`                                | Open the lightbox at slide `i`                                                                  |
+| `closeLightbox()`                                | Close the lightbox                                                                              |
 
-### 9.2 Camera carousel
+### 9.2 Distance and direction captions
+
+Two independent distance/direction captions share the same geometry helpers (`haversineKm`, `bearingDeg`, `bearingLabel`, `formatDistance`, `formatDistanceLabel`):
+
+- **Camera caption** — `showCameraForStation` computes the distance and bearing **from the selected station to the nearest camera** and renders it as, e.g., "Kameran etäisyys asemasta: 1.8 km luoteeseen". This always shows once a camera is found, since both endpoints (station and camera coordinates) come from already-fetched data.
+- **Station-distance caption** — `showStationDistance` computes the distance and bearing **from the user's cached browser location to the selected station** and renders it above the station dropdown, e.g. "Etäisyys sijaintiisi: 442 m koilliseen". If the reported `GeolocationPosition.coords.accuracy` (meters) is available, it's appended unconditionally as "(tarkkuus ±1.5 km)" — there's no accuracy threshold that hides the caption; the raw figure is left for the user to judge, since accuracy varies widely by device (a phone's GPS is typically far more precise than a desktop's IP/Wi-Fi-based estimate). This caption is hidden entirely if no location has been obtained yet (see §10.4).
+
+### 9.3 Camera carousel
 
 - Renders camera images in a carousel/gallery layout below the observation card
 - Automatically scales images responsively on different screen sizes
 - Refreshes camera images on the same cadence as observation data (triggered by `app.js` after each weather fetch)
 
-### 9.3 Lightbox
+### 9.4 Lightbox
 
 Clicking any camera image opens a fullscreen-capable lightbox:
 
@@ -508,7 +521,7 @@ Clicking any camera image opens a fullscreen-capable lightbox:
 - **Fullscreen** — the ⛶ button calls `element.requestFullscreen()`; the `fullscreenchange` event updates layout variables (`--fs-w`, `--fs-h`) so slides fill the screen correctly
 - **Dismiss** — Escape key, close button, or clicking outside the slide
 
-### 9.4 Station search modal
+### 9.5 Station search modal
 
 A 🔍 search button next to the station dropdown opens a modal with a text input. Typing filters the full station list client-side (case-insensitive substring match on formatted name). Selecting a result closes the modal and triggers the same station-selection flow as the dropdown (POST settings, update MRU, fetch observations). This logic lives in `app.js`.
 
@@ -533,11 +546,12 @@ Related code:
 The function itself:
 
 1. Calls `navigator.geolocation.getCurrentPosition()` (8-second timeout).
-2. On success, sends `POST /api/nearest-station/` with a JSON body `{lat, lon}` to the Django backend.
-3. The backend computes haversine distance from the supplied coordinates to every station in the cached list and returns the closest one.
-4. The frontend selects that station in the dropdown, persists it via `saveSettings()` (`current_station_id`/`current_station_name`), and fetches its weather data.
+2. On success, caches `{lat, lon, accuracy}` in `state.userLocation` and in `localStorage` (`wx_user_location`, via `saveUserLocation()` in [state.js](../weather/static/weather/js/state.js)) — see §10.4.
+3. Sends `POST /api/nearest-station/` with a JSON body `{lat, lon}` to the Django backend.
+4. The backend computes haversine distance from the supplied coordinates to every station in the cached list and returns the closest one.
+5. The frontend selects that station in the dropdown, persists it via `saveSettings()` (`current_station_id`/`current_station_name`), and fetches its weather data.
 
-If geolocation fails for any reason (permission denied, timeout, API error, or non-secure context), the function falls back to the first alphabetically sorted station, persists that choice the same way, and logs a timestamped `console.warn`.
+If geolocation fails for any reason (permission denied, timeout, API error, or non-secure context), the function falls back to the first alphabetically sorted station, persists that choice the same way, and logs a timestamped `console.warn`. No location is cached in this case, so the station-distance caption (§9.2) stays hidden.
 
 ### 10.2 Sequence diagram
 
@@ -552,7 +566,8 @@ sequenceDiagram
     Note over User,Browser: Triggered on page load (no saved station)<br/>or on demand via the ⌖ locate button
     Browser->>Geo: getCurrentPosition() (timeout 8s)
     alt permission granted
-        Geo-->>Browser: {latitude, longitude}
+        Geo-->>Browser: {latitude, longitude, accuracy}
+        Browser->>Browser: cache in state.userLocation + localStorage
         Browser->>Django: POST /api/nearest-station/ {lat, lon}
         Django->>Django: haversine distance over cached station list
         Django-->>Browser: {id, name, formatted_name, lat, lon}
@@ -566,6 +581,15 @@ sequenceDiagram
 ### 10.3 Secure context requirement
 
 The browser Geolocation API is only available in **secure contexts** (HTTPS or `localhost`). On a plain HTTP connection the API object is unavailable and the fallback fires immediately. For local development, access the server via `http://localhost:8000` to satisfy the secure-context requirement without needing a certificate.
+
+### 10.4 Client-side location cache
+
+Unlike the coordinates sent to `/api/nearest-station/` (used once server-side and never persisted — see the Privacy section of [USER_GUIDE.md](USER_GUIDE.md)), the raw `{lat, lon, accuracy}` triple is cached **in the browser only**, in `localStorage` under the key `wx_user_location` (`loadUserLocation()`/`saveUserLocation()` in [state.js](../weather/static/weather/js/state.js)). This cache:
+
+- Is read once at startup into `state.userLocation` and kept in memory afterwards.
+- Is overwritten every time geolocation succeeds again (page load with no saved station, or the ⌖ locate button), so it reflects the most recent fix, not the first one ever obtained.
+- Powers the station-distance caption (§9.2) — that caption is hidden whenever this cache is empty (geolocation was never granted/succeeded in this browser).
+- Is never sent to the server; it stays on the client exactly like the MRU station list (`wx_mru_stations`) and cookie-consent flag.
 
 ---
 

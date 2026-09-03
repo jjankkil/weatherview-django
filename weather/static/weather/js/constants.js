@@ -9,6 +9,9 @@
 export const MRU_KEY = 'wx_mru_stations';  //!< localStorage key for MRU station list
 export const MRU_MAX = 10;                 //!< Maximum number of stations in MRU list
 
+// ── User geolocation cache ───────────────────────────────────
+export const USER_LOCATION_KEY = 'wx_user_location';  //!< localStorage key for cached user lat/lon
+
 // ── Weathercam API ───────────────────────────────────────────
 
 /** @brief Base URL for the Digitraffic weathercam station list API. */

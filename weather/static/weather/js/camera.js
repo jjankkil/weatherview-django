@@ -20,7 +20,7 @@ export const lightbox = { index: 0 };
 
 // ── Geometry helpers ─────────────────────────────────────────
 
-function haversineKm(lat1, lon1, lat2, lon2) {
+export function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -30,7 +30,7 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function bearingDeg(lat1, lon1, lat2, lon2) {
+export function bearingDeg(lat1, lon1, lat2, lon2) {
   const toRad = x => x * Math.PI / 180;
   const dLon = toRad(lon2 - lon1);
   const y = Math.sin(dLon) * Math.cos(toRad(lat2));
@@ -39,9 +39,24 @@ function bearingDeg(lat1, lon1, lat2, lon2) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-function bearingLabel(deg, lang) {
+export function bearingLabel(deg, lang) {
   const dirs = lang === 'en' ? DIRECTIONS_EN : lang === 'sv' ? DIRECTIONS_SV : DIRECTIONS_FI;
   return dirs[Math.round(deg / 45) % 8];
+}
+
+/**
+ * @brief Format a distance in meters, switching to km with one decimal place at 1000m.
+ */
+export function formatDistance(distanceKm) {
+  const distM = Math.round(distanceKm * 1000);
+  return distanceKm < 1 ? `${distM} m` : `${distanceKm.toFixed(1)} km`;
+}
+
+/**
+ * @brief Format a distance/bearing pair the same way as the camera distance label.
+ */
+export function formatDistanceLabel(distanceKm, bearing, lang) {
+  return `${formatDistance(distanceKm)} ${bearingLabel(bearing, lang)}`;
 }
 
 function findNearestCamera(stations, lat, lon) {
@@ -201,15 +216,11 @@ export async function showCameraForStation(stationId) {
 
   const [camLon, camLat] = feature.geometry.coordinates;
   const bearing = bearingDeg(station.lat, station.lon, camLat, camLon);
-  const dirLabel = bearingLabel(bearing, _state.lang);
-  const distM = Math.round(distanceKm * 1000);
-  const distLabel = distanceKm < 1
-    ? `${distM} m ${dirLabel}`
-    : `${distanceKm.toFixed(1)} km ${dirLabel}`;
+  const distLabel = formatDistanceLabel(distanceKm, bearing, _state.lang);
 
   const rawName = feature.properties.name || feature.properties.id || '';
   _dom.cameraTitle.textContent = rawName.replace(/_/g, ' ');
-  _dom.cameraDistance.textContent = distLabel;
+  _dom.cameraDistance.textContent = `${_labels().cameraDistanceLabel} ${distLabel}`;
   _dom.cameraUpdated.textContent = '';
   _setVisible(_dom.cameraPanel, true);
 
@@ -226,4 +237,30 @@ export async function showCameraForStation(stationId) {
   if (presets.length === 0) return;
   const previousIndex = carousel.index;
   buildCarousel(presets, Date.now(), previousIndex);
+}
+
+/**
+ * @brief Show the distance/direction from the user's cached location to the given station.
+ *
+ * Hidden entirely when no user location has been obtained via geolocation.
+ */
+export function showStationDistance(stationId) {
+  const station = _state.stations.find(s => s.id === stationId);
+  const loc = _state.userLocation;
+  if (!station || station.lat == null || station.lon == null || !loc) {
+    _setVisible(_dom.stationDistance, false);
+    return;
+  }
+
+  const distanceKm = haversineKm(loc.lat, loc.lon, station.lat, station.lon);
+  const bearing = bearingDeg(loc.lat, loc.lon, station.lat, station.lon);
+  const distLabel = formatDistanceLabel(distanceKm, bearing, _state.lang);
+
+  const L = _labels();
+  let text = `${L.stationDistanceLabel} ${distLabel}`;
+  if (typeof loc.accuracy === 'number') {
+    text += ` ${L.stationDistanceAccuracy.replace('{d}', formatDistance(loc.accuracy / 1000))}`;
+  }
+  _dom.stationDistance.textContent = text;
+  _setVisible(_dom.stationDistance, true);
 }

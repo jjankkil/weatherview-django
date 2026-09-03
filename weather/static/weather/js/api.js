@@ -4,7 +4,7 @@ import { state, pushMru } from './state.js';
 import {
   dom, labels, showError, hideError, renderWeather, populateStations,
 } from './render.js';
-import { showCameraForStation } from './camera.js';
+import { showCameraForStation, showStationDistance } from './camera.js';
 import { renderTrendChart, destroyTrendChart } from './trend_chart.js';
 
 // ── CSRF token ───────────────────────────────────────────────
@@ -135,6 +135,7 @@ export async function fetchWeather(stationId, fresh = false) {
     pushMru(stationId);
     if (state.stations.length > 0) populateStations(state.stations);
     startNextUpdateDisplay(data.seconds_until_next_update || 0);
+    showStationDistance(stationId);
     if (state.showCamera) showCameraForStation(stationId);
     if (state.showHistory) {
       fetchStationHistory(stationId).then(renderTrendChart);

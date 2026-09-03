@@ -1,6 +1,6 @@
 'use strict';
 
-import { state } from './state.js';
+import { state, saveUserLocation } from './state.js';
 import { dom } from './render.js';
 import { fetchWeather, getCsrfToken, saveSettings } from './api.js';
 
@@ -50,8 +50,10 @@ export async function selectNearestByGeolocation(stations) {
     }
 
     try {
-      const { latitude, longitude } = position.coords;
-      console.debug(`[geolocation] Got position: lat=${latitude}, lon=${longitude}`);
+      const { latitude, longitude, accuracy } = position.coords;
+      console.debug(`[geolocation] Got position: lat=${latitude}, lon=${longitude}, accuracy=${accuracy}`);
+      state.userLocation = { lat: latitude, lon: longitude, accuracy };
+      saveUserLocation(latitude, longitude, accuracy);
       const r = await fetch('/api/nearest-station/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },

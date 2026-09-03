@@ -1,6 +1,6 @@
 'use strict';
 
-import { MRU_KEY, MRU_MAX } from './constants.js';
+import { MRU_KEY, MRU_MAX, USER_LOCATION_KEY } from './constants.js';
 
 // ── Global application state ────────────────────────────────
 /**
@@ -13,6 +13,7 @@ import { MRU_KEY, MRU_MAX } from './constants.js';
  * @property {?number}  countdownTimer    Interval ID for the countdown display timer.
  * @property {?number}  refreshDueAt      Epoch ms when new data will be available (null if unknown).
  * @property {boolean}  loading           Whether a weather data fetch is currently in progress.
+ * @property {?{lat: number, lon: number, accuracy: ?number}} userLocation  Last known browser geolocation, or null if unavailable.
  */
 export const state = {
   lang: 'fi',
@@ -25,7 +26,26 @@ export const state = {
   countdownTimer: null,
   refreshDueAt: null,
   loading: false,
+  userLocation: loadUserLocation(),
 };
+
+// ── User geolocation cache ───────────────────────────────────
+export function loadUserLocation() {
+  try {
+    const raw = localStorage.getItem(USER_LOCATION_KEY);
+    if (!raw) return null;
+    const loc = JSON.parse(raw);
+    return (loc && typeof loc.lat === 'number' && typeof loc.lon === 'number') ? loc : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function saveUserLocation(lat, lon, accuracy) {
+  try {
+    localStorage.setItem(USER_LOCATION_KEY, JSON.stringify({ lat, lon, accuracy }));
+  } catch (_) { /* ignore quota errors */ }
+}
 
 // ── Forecast carousel state ─────────────────────────────────
 export const forecastCarousel = { index: 0, items: [] };

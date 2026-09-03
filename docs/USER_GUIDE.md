@@ -44,6 +44,15 @@ of the page. It only needs to be dismissed once.
 - **Search**: the search button opens a small window where you can type part of a
   station's name. Matches are filtered as you type and the matching letters are
   highlighted. Selecting a result works exactly like picking it from the dropdown.
+- **Distance to the station**: once your browser has given a location at least once
+  (automatically on first visit, or via the locate button), a line under the dropdown
+  shows how far and in which direction the selected station is from that location,
+  e.g. "Etäisyys sijaintiisi: 442 m koilliseen". If your device also reports how
+  accurate the fix was, that's shown too, e.g. "(tarkkuus ±1.5 km)" — desktop/laptop
+  location is often IP- or Wi-Fi-based and can be off by a kilometre or more, while a
+  phone with GPS is usually much more precise, so treat a large accuracy figure as a
+  sign the distance itself may be off. This line is left out entirely if location
+  access has never succeeded in this browser.
 - Whatever you pick is remembered for next time, and moves to the top of your recent
   list.
 - Picking a station does not change the page address or add anything to your
@@ -53,7 +62,8 @@ of the page. It only needs to be dismissed once.
 ## Weather camera pictures
 
 If the selected station has a nearby weather camera, its latest pictures are shown
-below the observation card.
+below the observation card, along with how far the camera is from the station and in
+which direction, e.g. "Kameran etäisyys asemasta: 1.8 km luoteeseen".
 
 - **Click or tap a picture** to open it larger in a viewer ("lightbox").
 - From there, use the **arrow buttons**, the **left/right arrow keys** on your
@@ -98,6 +108,8 @@ Between visits, the app remembers:
 - Your chosen language.
 - Your settings (camera on/off, history chart on/off, and how many hours of history
   to show).
+- The last location your browser reported (used for the "distance to station" line
+  under the station dropdown), if you've ever allowed location access.
 
 This is all tied to your browser — it isn't shared across different browsers or
 devices, and clearing your browser's cookies/site data resets it.
@@ -132,8 +144,13 @@ off in settings, this section is simply left out.
   on first visit, or on demand via the ⌖ locate button — your exact coordinates are
   sent to the server only to work out which
   station is nearest to you. They're used for that one calculation and then discarded
-  — they are not saved, logged, or kept anywhere, and they're sent in a way that
-  specifically avoids them ending up in the server's access logs.
+  — they are not saved, logged, or kept anywhere on the server, and they're sent in a
+  way that specifically avoids them ending up in the server's access logs. Your
+  browser does keep the last coordinates it obtained (and how accurate they were) in
+  its own local storage on your device, purely so the "distance to station" line
+  (see "Picking a station" above) can keep working without asking for your location
+  again on every visit — this never leaves your browser and is cleared the same way
+  as your other saved settings (see "Settings and what the app remembers" above).
 - **Your IP address**: like any web server, WeatherView sees the IP address your
   browser connects from. It's used solely to apply a rate limit (to stop any one
   visitor from overloading the service) and is kept only as a short-lived request

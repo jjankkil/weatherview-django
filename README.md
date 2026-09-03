@@ -75,16 +75,17 @@ Open <http://127.0.0.1:8000/> in your browser. See the [Development Guide](docs/
 
 ## Usage
 
-| Element                | What it does                                                                       |
-| ---------------------- | ----------------------------------------------------------------------------------- |
-| Station dropdown       | Pick any station. Most-recently-used 10 are grouped at the top.                     |
-| Locate button (⌖)      | Select and refresh the nearest station on demand.                                   |
-| Search button          | Open a search modal and filter stations by name.                                    |
-| Language dropdown      | Select from available languages.                                                    |
-| Settings button        | Open settings (camera toggle, displayed history length).                            |
-| 'Päivitä nyt' button   | (Update now) Force an immediate refresh.                                            |
-| Seuraava paivitys: N s | Countdown to the next automatic refresh when the server signals new data is due.    |
-| Camera image           | Open a lightbox and navigate images with controls, keys, or swipe.                  |
+| Element                | What it does                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------- |
+| Station dropdown       | Pick any station. Most-recently-used 10 are grouped at the top.                       |
+| Etäisyys sijaintiisi   | Distance/direction from your last known location to the selected station, once known. |
+| Locate button (⌖)      | Select and refresh the nearest station on demand.                                     |
+| Search button          | Open a search modal and filter stations by name.                                      |
+| Language dropdown      | Select from available languages.                                                      |
+| Settings button        | Open settings (camera toggle, displayed history length).                              |
+| 'Päivitä nyt' button   | (Update now) Force an immediate refresh.                                              |
+| Seuraava paivitys: N s | Countdown to the next automatic refresh when the server signals new data is due.      |
+| Camera image           | Open a lightbox and navigate images with controls, keys, or swipe.                    |
 
 ## Documentation
 
