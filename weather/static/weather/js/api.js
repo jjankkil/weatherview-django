@@ -106,8 +106,10 @@ export function startNextUpdateDisplay(seconds) {
 }
 
 // ── Weather data API ─────────────────────────────────────────
+let weatherRequestId = 0;
+
 export async function fetchWeather(stationId, fresh = false) {
-  if (state.loading) return;
+  const requestId = ++weatherRequestId;
   state.loading = true;
   clearCountdown();
   dom.refreshBtn.disabled = true;
@@ -120,6 +122,7 @@ export async function fetchWeather(stationId, fresh = false) {
     const r = await fetch(url);
 
     if (!r.ok) {
+      if (requestId !== weatherRequestId) return;
       let msg;
       try {
         const data = await r.json();
@@ -131,6 +134,7 @@ export async function fetchWeather(stationId, fresh = false) {
     }
 
     const data = await r.json();
+    if (requestId !== weatherRequestId) return;
     renderWeather(data);
     pushMru(stationId);
     if (state.stations.length > 0) populateStations(state.stations);
@@ -143,8 +147,9 @@ export async function fetchWeather(stationId, fresh = false) {
       destroyTrendChart();
     }
   } catch (e) {
-    showError(labels().networkError);
+    if (requestId === weatherRequestId) showError(labels().networkError);
   } finally {
+    if (requestId !== weatherRequestId) return;
     state.loading = false;
     dom.refreshBtn.disabled = false;
     document.body.classList.remove('loading');
