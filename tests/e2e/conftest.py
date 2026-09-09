@@ -19,10 +19,17 @@ from playwright.sync_api import Page
 
 _PORT = 18765
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_NPM_COMMAND = "npm.cmd" if os.name == "nt" else "npm"
 
 
 @pytest.fixture(scope="session")
-def _django_server():
+def _frontend_build() -> None:
+    """Compile TypeScript before Django serves the browser assets."""
+    subprocess.run([_NPM_COMMAND, "run", "build"], cwd=_PROJECT_ROOT, check=True)
+
+
+@pytest.fixture(scope="session")
+def _django_server(_frontend_build):
     """Start manage.py runserver; yield the base URL; terminate after the session."""
     env = {
         **os.environ,

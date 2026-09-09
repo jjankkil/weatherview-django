@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "rootDir": "weather/static/weather/ts",
+    "outDir": "weather/static/weather/js",
+    "strict": false,
+    "verbatimModuleSyntax": true,
+    "newLine": "lf",
+    "skipLibCheck": true
+  },
+  "include": ["weather/static/weather/ts/**/*.ts"]
+}

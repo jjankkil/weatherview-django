@@ -13,7 +13,7 @@ suites above (in several cases mirroring a specific pytest test one-for-one),
 just through Robot Framework's keyword-driven syntax instead of
 pytest/Django's `TestCase`; its offline unit suite similarly duplicates a
 subset of `weather/tests.py`'s (more thorough) coverage of
-`fmi_feels_like_temperature`/`wind_direction_as_text`. 
+`fmi_feels_like_temperature`/`wind_direction_as_text`.
 
 ## Local setup
 
@@ -35,6 +35,12 @@ Set the required secret key in `.env`:
 WVD_SECRET_KEY=<generate with: python -c "from django.utils.crypto import get_random_string; print(get_random_string(50))">
 ```
 
+Install the frontend build dependency (Node.js 20+ is required):
+
+```bash
+npm install
+```
+
 Start the app:
 
 ```bash
@@ -51,9 +57,14 @@ startup.bat
 ## Dev checks
 
 ```bash
+npm run typecheck
+npm run build
 python manage.py check
 ```
 
+The browser sources are TypeScript files in `weather/static/weather/ts/`.
+`npm run build` compiles them to the Django-served JavaScript assets in
+`weather/static/weather/js/`; use `npm run watch` during frontend development.
 The development server reloads automatically on file changes.
 
 ## Testing
@@ -72,6 +83,9 @@ These tests are fast and run without network access.
 playwright install chromium
 pytest tests/e2e/
 ```
+
+The E2E fixtures run `npm run build` before starting Django, so the tests always
+exercise the JavaScript generated from the TypeScript sources.
 
 Coverage includes page load, station selection rendering, language switching, and language persistence.
 

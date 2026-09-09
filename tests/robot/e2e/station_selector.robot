@@ -15,13 +15,10 @@ Both Fixture Stations Appear In The Dropdown
     Get Text    id=station-select    contains    Tampere
 
 Selecting A Station Renders Its Weather Data
-    [Documentation]    Waits for the geolocation-fallback fetch of the initial station
-    ...                (1001) to settle before switching to 1002 — app.js has no guard
-    ...                against out-of-order fetch responses, so switching immediately
-    ...                can let the still-in-flight 1001 response overwrite 1002's data.
+    [Documentation]    Waits for the initial fallback request before selecting fixture station 1002.
     Get Text    id=station-select    contains    Tampere
-    Get Text    id=temp-value    ==    -2.5 °C
+    Wait For Condition    Text    id=temp-value    ==    -2.5 °C    timeout=10s
     Select Options By    id=station-select    value    1002
-    Get Text    id=temp-value    ==    5.0 °C
-    Get Text    id=wind-value    ==    2.0 m/s
+    Wait For Condition    Text    id=temp-value    ==    5.0 °C    timeout=10s
+    Wait For Condition    Text    id=wind-value    ==    2.0 m/s    timeout=10s
     Get Element States    id=weather-card    contains    visible
