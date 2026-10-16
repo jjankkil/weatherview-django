@@ -199,14 +199,14 @@ classDiagram
 
 ## 4. HTTP API (Server Surface)
 
-| Method | Path                     | View                  | Purpose                                              |
-| ------ | ------------------------ | --------------------- | ---------------------------------------------------- |
-| GET    | `/`                      | `index`               | Serves the SPA shell (`index.html`)                  |
-| GET    | `/api/stations/`         | `api_stations`        | Returns the cached, filtered station catalogue       |
-| GET    | `/api/station/<int:id>/` | `api_station_data`    | Parsed observations + FMI WFS forecast               |
-| GET    | `/api/station-history/<int:id>/` | `api_station_history` | Returns bucketed temperature/precipitation history for a station, plus `rain_sum_24h` (trailing 24h rain total, independent of the shown history window) |
-| GET/PATCH | `/api/settings/`      | `api_settings`        | Reads or partially updates whitelisted settings (PATCH is CSRF-protected) |
-| GET/POST    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to query params or a JSON body with `lat`/`lon` |
+| Method    | Path                             | View                  | Purpose                                                                                                                                                  |
+| --------- | -------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET       | `/`                              | `index`               | Serves the SPA shell (`index.html`)                                                                                                                      |
+| GET       | `/api/stations/`                 | `api_stations`        | Returns the cached, filtered station catalogue                                                                                                           |
+| GET       | `/api/station/<int:id>/`         | `api_station_data`    | Parsed observations + FMI WFS forecast                                                                                                                   |
+| GET       | `/api/station-history/<int:id>/` | `api_station_history` | Returns bucketed temperature/precipitation history for a station, plus `rain_sum_24h` (trailing 24h rain total, independent of the shown history window) |
+| GET/PATCH | `/api/settings/`                 | `api_settings`        | Reads or partially updates whitelisted settings (PATCH is CSRF-protected)                                                                                |
+| POST      | `/api/nearest-station/`          | `api_nearest_station` | Returns the station closest to JSON-body `lat`/`lon` coordinates                                                                                         |
 
 Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `show_history`, and `history_hours`. Only those keys are accepted; other keys are ignored and invalid values return HTTP 400 ([views.py](../weather/views.py)).
 
@@ -247,7 +247,7 @@ sequenceDiagram
     Browser->>Browser: render dropdown, restore MRU from localStorage
     alt no saved station
         Browser->>Browser: navigator.geolocation.getCurrentPosition()
-        Browser->>Django: GET /api/nearest-station/?lat=…&lon=…
+        Browser->>Django: POST /api/nearest-station/ {lat, lon}
         Django-->>Browser: nearest station dict
     end
     Browser->>Django: GET /api/station/<id>/

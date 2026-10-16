@@ -271,12 +271,12 @@ def api_settings(request):
     return JsonResponse(user_settings)
 
 
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["POST"])
 def api_nearest_station(request):
     """Return the station closest to the given WGS84 coordinates.
 
-    Accepts coordinates as a JSON body (POST) instead of query parameters so
-    that precise geolocation data is kept out of server access logs.
+    Accepts coordinates as a JSON body so precise geolocation data is kept
+    out of server access logs.
 
     @param request Django request with JSON body:
                    - lat: WGS84 latitude in decimal degrees (required)
@@ -292,23 +292,12 @@ def api_nearest_station(request):
     - Requires HTTPS (or localhost) in the browser; the Geolocation API that
       supplies the coordinates is only available in secure contexts
     """
-    if request.method == "GET":
-        lat = request.GET.get("lat")
-        lon = request.GET.get("lon")
-        if lat is None or lon is None:
-            return JsonResponse({"error": "lat and lon are required numeric fields"}, status=400)
-        try:
-            lat = float(lat)
-            lon = float(lon)
-        except (ValueError, TypeError):
-            return JsonResponse({"error": "lat and lon must be numeric"}, status=400)
-    else:
-        try:
-            body = json.loads(request.body)
-            lat = float(body['lat'])
-            lon = float(body['lon'])
-        except (json.JSONDecodeError, UnicodeDecodeError, KeyError, ValueError, TypeError):
-            return JsonResponse({"error": "lat and lon are required numeric fields in the JSON body"}, status=400)
+    try:
+        body = json.loads(request.body)
+        lat = float(body['lat'])
+        lon = float(body['lon'])
+    except (json.JSONDecodeError, UnicodeDecodeError, KeyError, ValueError, TypeError):
+        return JsonResponse({"error": "lat and lon are required numeric fields in the JSON body"}, status=400)
 
     try:
         station_list = _get_station_list()

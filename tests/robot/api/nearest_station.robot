@@ -33,8 +33,6 @@ Non Numeric Coordinates Return 400
     ...    headers=${headers}    expected_status=any
     Should Be Equal As Integers    ${resp.status_code}    400
 
-GET With Query Params Is Also Accepted
-    [Documentation]    api_nearest_station allows both GET and POST (views.py @require_http_methods(["GET", "POST"])).
-    [Tags]    live
+GET With Query Params Is Rejected
     ${resp}=    GET On Session    weather    /api/nearest-station/    params=lat=60.198&lon=24.932    expected_status=any
-    Should Be Equal As Integers    ${resp.status_code}    200
+    Should Be Equal As Integers    ${resp.status_code}    405

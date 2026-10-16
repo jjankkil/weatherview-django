@@ -299,19 +299,9 @@ class ApiViewTests(SimpleTestCase):
             self.assertEqual(response.status_code, 502)
             self.assertEqual(response.json(), {"error": service.error_message})
 
-    def test_api_nearest_station_accepts_get_query_params(self):
-        """The nearest-station endpoint should also work for GET requests from older clients."""
-        station_list = MagicMock()
-        station_list.get_name_list.return_value = [
-            {"id": 1, "name": "foo", "formatted_name": "Foo", "lat": 0.0, "lon": 0.0},
-            {"id": 2, "name": "bar", "formatted_name": "Bar", "lat": 1.0, "lon": 1.0},
-        ]
-
-        with patch("weather.views._get_station_list", return_value=station_list):
-            response = self.client.get("/api/nearest-station/", {"lat": 0.0, "lon": 0.0})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["id"], 1)
+    def test_api_nearest_station_rejects_get(self):
+        response = self.client.get("/api/nearest-station/", {"lat": 0.0, "lon": 0.0})
+        self.assertEqual(response.status_code, 405)
 
 
 class HelpersTests(SimpleTestCase):
@@ -1109,6 +1099,7 @@ class ForecastAggregationTests(SimpleTestCase):
 
     def _run(self, hourly_samples, daily_samples):
         from types import SimpleNamespace
+
         from weather.services.weather_service import FmiForecastService
 
         xmls = [_fmi_xml(hourly_samples), _fmi_xml(daily_samples)]
@@ -1120,6 +1111,7 @@ class ForecastAggregationTests(SimpleTestCase):
     def test_hourly_slot_reports_max_and_its_symbol(self):
         """@brief A 3-hour slot shows its warmest sub-hour, with that hour's symbol."""
         from weather.services.fmi_symbols import get_fmi_weather_symbol
+
         # Future date so the slot is never skipped as past. All three fall in
         # the 21:00 UTC slot; peak is 22:00Z at 17.9 °C with symbol code 2.
         forecast, _ = self._run(
@@ -1138,6 +1130,7 @@ class ForecastAggregationTests(SimpleTestCase):
     def test_daily_reports_local_day_max(self):
         """@brief A daily item shows the max over that local calendar day."""
         from weather.services.fmi_symbols import get_fmi_weather_symbol
+
         # Both samples land on local day 2100-01-02 (Europe/Helsinki); the
         # afternoon peak (22.4 °C, symbol 3) must win over the cool morning.
         forecast, _ = self._run(
