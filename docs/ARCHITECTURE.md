@@ -211,6 +211,8 @@ classDiagram
 
 Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `show_history`, and `history_hours`. Only those keys are accepted; other keys are ignored and invalid values return HTTP 400 ([views.py](../weather/views.py)).
 
+The station catalogue, station detail, station history, and settings-read endpoints are GET-only; other methods return HTTP 405.
+
 ---
 
 ## 5. Runtime Behavior

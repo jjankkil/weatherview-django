@@ -258,6 +258,14 @@ class CacheSettingsTests(SimpleTestCase):
 class ApiViewTests(SimpleTestCase):
     """Regression tests for API compatibility with remote browsers."""
 
+    def test_station_collection_rejects_post(self):
+        response = self.client.post("/api/stations/")
+        self.assertEqual(response.status_code, 405)
+
+    def test_station_detail_rejects_post(self):
+        response = self.client.post("/api/station/12345/")
+        self.assertEqual(response.status_code, 405)
+
     def test_api_nearest_station_accepts_get_query_params(self):
         """The nearest-station endpoint should also work for GET requests from older clients."""
         station_list = MagicMock()

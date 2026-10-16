@@ -143,6 +143,7 @@ def index(request):
     return render(request, "weather/index.html")
 
 
+@require_http_methods(["GET"])
 def api_stations(request):
     """Get the list of available weather stations (public only).
 
@@ -164,6 +165,7 @@ def api_stations(request):
     return JsonResponse({"stations": station_list.get_name_list()})
 
 
+@require_http_methods(["GET"])
 def api_station_data(request, station_id: int):
     """Get current weather data for a specific station.
 
