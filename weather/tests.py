@@ -600,6 +600,7 @@ class ViewTests(SimpleTestCase):
         self.client = Client(enforce_csrf_checks=False)
         self._get = lambda path, **kw: self.client.get(path, secure=True, **kw)
         self._post = lambda path, **kw: self.client.post(path, secure=True, **kw)
+        self._patch = lambda path, **kw: self.client.patch(path, secure=True, **kw)
 
     def test_index_renders(self):
         """@brief GET / returns HTTP 200 and the application title."""
@@ -608,32 +609,35 @@ class ViewTests(SimpleTestCase):
         self.assertIn(b"Ties", r.content)  # "Tiesää" — UTF-8 prefix is enough
 
     def test_settings_default_and_save(self):
-        """@brief GET /api/settings/ returns defaults; POST /api/settings/save/ persists new values."""
+        """@brief GET /api/settings/ returns defaults; PATCH persists a partial update."""
         r = self._get("/api/settings/")
         self.assertEqual(r.status_code, 200)
         data = r.json()
         self.assertEqual(data["language"], "fi")
 
-        # POST update
-        r = self._post(
-            "/api/settings/save/",
+        r = self._patch(
+            "/api/settings/",
             data='{"language": "en"}',
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json(), {"ok": True})
+        self.assertEqual(r.json()["language"], "en")
 
         r = self._get("/api/settings/")
         self.assertEqual(r.json()["language"], "en")
 
     def test_settings_save_rejects_bad_json(self):
-        """@brief POST /api/settings/save/ with malformed JSON returns HTTP 400."""
-        r = self._post(
-            "/api/settings/save/",
+        """@brief PATCH /api/settings/ with malformed JSON returns HTTP 400."""
+        r = self._patch(
+            "/api/settings/",
             data="not json",
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 400)
+
+    def test_settings_resource_rejects_post(self):
+        r = self._post("/api/settings/")
+        self.assertEqual(r.status_code, 405)
 
     @patch("weather.services.weather_service.requests.get")
     def test_api_stations_uses_digitraffic(self, mock_get):
@@ -694,10 +698,10 @@ class ViewTests(SimpleTestCase):
 
     @patch("weather.services.weather_service.requests.get")
     def test_api_station_data_unknown_id(self, mock_get):
-        """@brief Requesting a station id not present in the station list returns HTTP 502."""
+        """@brief Requesting a station id not present in the station list returns HTTP 404."""
         mock_get.return_value = _mock_response(_STATION_LIST_PAYLOAD)
         r = self._get("/api/station/77777/")
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 404)
         self.assertIn("error", r.json())
 
     @patch("weather.services.weather_service.requests.get")
@@ -774,9 +778,9 @@ class ViewTests(SimpleTestCase):
         self.assertIn("error", r.json())
 
     def test_settings_save_non_dict_body_returns_400(self):
-        """@brief POST /api/settings/save/ with a JSON array body returns HTTP 400."""
-        r = self._post(
-            "/api/settings/save/",
+        """@brief PATCH /api/settings/ with a JSON array body returns HTTP 400."""
+        r = self._patch(
+            "/api/settings/",
             data="[1, 2, 3]",
             content_type="application/json",
         )
@@ -784,9 +788,9 @@ class ViewTests(SimpleTestCase):
         self.assertIn("JSON object", r.json()["error"])
 
     def test_settings_save_invalid_language_returns_400(self):
-        """@brief POST /api/settings/save/ with an unsupported language code returns HTTP 400."""
-        r = self._post(
-            "/api/settings/save/",
+        """@brief PATCH /api/settings/ with an unsupported language code returns HTTP 400."""
+        r = self._patch(
+            "/api/settings/",
             data='{"language": "de"}',
             content_type="application/json",
         )
@@ -794,9 +798,9 @@ class ViewTests(SimpleTestCase):
         self.assertIn("language", r.json()["error"])
 
     def test_settings_save_invalid_show_camera_type_returns_400(self):
-        """@brief POST /api/settings/save/ with show_camera as a non-boolean returns HTTP 400."""
-        r = self._post(
-            "/api/settings/save/",
+        """@brief PATCH /api/settings/ with show_camera as a non-boolean returns HTTP 400."""
+        r = self._patch(
+            "/api/settings/",
             data='{"show_camera": "yes"}',
             content_type="application/json",
         )
@@ -804,11 +808,11 @@ class ViewTests(SimpleTestCase):
         self.assertIn("show_camera", r.json()["error"])
 
     def test_settings_save_invalid_station_id_returns_400(self):
-        """@brief POST /api/settings/save/ with an invalid current_station_id returns HTTP 400."""
+        """@brief PATCH /api/settings/ with an invalid current_station_id returns HTTP 400."""
         for val in [0, -1, True, "abc"]:
             with self.subTest(val=val):
-                r = self._post(
-                    "/api/settings/save/",
+                r = self._patch(
+                    "/api/settings/",
                     data=json.dumps({"current_station_id": val}),
                     content_type="application/json",
                 )
@@ -816,9 +820,9 @@ class ViewTests(SimpleTestCase):
                 self.assertIn("current_station_id", r.json()["error"])
 
     def test_settings_save_station_name_too_long_returns_400(self):
-        """@brief POST /api/settings/save/ with current_station_name > 200 chars returns HTTP 400."""
-        r = self._post(
-            "/api/settings/save/",
+        """@brief PATCH /api/settings/ with current_station_name > 200 chars returns HTTP 400."""
+        r = self._patch(
+            "/api/settings/",
             data=json.dumps({"current_station_name": "x" * 201}),
             content_type="application/json",
         )
@@ -1256,12 +1260,12 @@ class SettingsHistoryValidationTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
         self.client = Client(enforce_csrf_checks=False)
-        self._post = lambda path, **kw: self.client.post(path, secure=True, **kw)
+        self._patch = lambda path, **kw: self.client.patch(path, secure=True, **kw)
 
     def test_settings_save_show_history_non_bool_returns_400(self):
-        """@brief POST /api/settings/save/ with show_history as a non-boolean returns HTTP 400."""
-        r = self._post(
-            "/api/settings/save/",
+        """@brief PATCH /api/settings/ with show_history as a non-boolean returns HTTP 400."""
+        r = self._patch(
+            "/api/settings/",
             data='{"show_history": "yes"}',
             content_type="application/json",
         )
@@ -1269,11 +1273,11 @@ class SettingsHistoryValidationTests(SimpleTestCase):
         self.assertIn("show_history", r.json()["error"])
 
     def test_settings_save_history_hours_wrong_type_returns_400(self):
-        """@brief POST /api/settings/save/ with history_hours as a float/string returns HTTP 400."""
+        """@brief PATCH /api/settings/ with history_hours as a float/string returns HTTP 400."""
         for val in ["12", 12.5, True]:
             with self.subTest(val=val):
-                r = self._post(
-                    "/api/settings/save/",
+                r = self._patch(
+                    "/api/settings/",
                     data=json.dumps({"history_hours": val}),
                     content_type="application/json",
                 )
@@ -1281,11 +1285,11 @@ class SettingsHistoryValidationTests(SimpleTestCase):
                 self.assertIn("history_hours", r.json()["error"])
 
     def test_settings_save_history_hours_out_of_range_returns_400(self):
-        """@brief POST /api/settings/save/ with history_hours outside 1–24 returns HTTP 400."""
+        """@brief PATCH /api/settings/ with history_hours outside 1–24 returns HTTP 400."""
         for val in [0, 25, -1]:
             with self.subTest(val=val):
-                r = self._post(
-                    "/api/settings/save/",
+                r = self._patch(
+                    "/api/settings/",
                     data=json.dumps({"history_hours": val}),
                     content_type="application/json",
                 )
@@ -1293,14 +1297,15 @@ class SettingsHistoryValidationTests(SimpleTestCase):
                 self.assertIn("history_hours", r.json()["error"])
 
     def test_settings_save_show_history_and_history_hours_valid(self):
-        """@brief POST /api/settings/save/ with valid show_history and history_hours returns HTTP 200."""
-        r = self._post(
-            "/api/settings/save/",
+        """@brief PATCH /api/settings/ with valid settings returns the updated representation."""
+        r = self._patch(
+            "/api/settings/",
             data='{"show_history": false, "history_hours": 6}',
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json(), {"ok": True})
+        self.assertFalse(r.json()["show_history"])
+        self.assertEqual(r.json()["history_hours"], 6)
 
         r = self.client.get("/api/settings/", secure=True)
         data = r.json()

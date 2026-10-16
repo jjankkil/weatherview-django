@@ -247,26 +247,28 @@ def api_station_data(request, station_id: int):
     return JsonResponse(response)
 
 
-@require_http_methods(["GET"])
-def api_settings_get(request):
-    """Retrieve the current user settings.
+@require_http_methods(["GET", "PATCH"])
+def api_settings(request):
+    """Read or partially update the current user's settings resource."""
+    if request.method == "GET":
+        return JsonResponse(_get_settings(request))
 
-    HTTP GET endpoint that returns all user preferences from session, merged with
-    defaults to ensure complete and valid settings object.
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    @param request Django request object with user session.
-    @return JsonResponse containing settings dict with keys:
-            - current_station_id: FMI station ID (or None)
-            - current_station_name: Display name of selected station
-            - language: Display language code ("fi" or "en")
-            - show_camera: Whether to display camera images (boolean)
-    @details
-    - HTTP method: GET only
-    - Returns merged defaults + session values
-    - Safe to access any key in response; all keys are guaranteed present
-    - No authentication required; uses Django session
-    """
-    return JsonResponse(_get_settings(request))
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "Request body must be a JSON object"}, status=400)
+
+    cleaned, error = _validate_settings_body(body)
+    if error:
+        return JsonResponse({"error": error}, status=400)
+
+    user_settings = _get_settings(request)
+    user_settings.update(cleaned)
+    _save_settings(request, user_settings)
+    return JsonResponse(user_settings)
 
 
 @require_http_methods(["GET", "POST"])
@@ -370,55 +372,6 @@ def _validate_settings_body(body: dict) -> tuple[dict, str | None]:
             return {}, "history_hours must be an integer between 1 and 24"
         cleaned["history_hours"] = val
     return cleaned, None
-
-
-@require_http_methods(["POST"])
-def api_settings_save(request):
-    """Save or update user settings.
-
-    HTTP POST endpoint that persists user preferences to the session. Only whitelisted
-    settings keys are accepted and type-checked; other keys are silently ignored.
-
-    @param request Django request object with JSON body containing settings to update.
-    @return JsonResponse:
-            - On success (200): {"ok": True}
-            - On parse or validation error (400): {"error": "..."}
-    @details
-    - HTTP method: POST only
-    - Request body: JSON object with setting keys and values
-    - CSRF protection: requires X-CSRFToken request header (token served via
-      <meta name="csrf-token"> in the page)
-    - Allowed keys (whitelist): current_station_id, current_station_name,
-      language, show_camera
-    - Partial updates: only provided keys are updated; others retain current values
-    - Values are type-checked; invalid types or values return HTTP 400
-    - All updates persisted to request.session for the current user
-    @details Example request body:
-    @code
-    {
-      "current_station_id": 101234,
-      "current_station_name": "Helsinki, KPA",
-      "language": "en",
-      "show_camera": true
-    }
-    @endcode
-    """
-    try:
-        body = json.loads(request.body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return JsonResponse({"error": "Invalid JSON"}, status=400)
-
-    if not isinstance(body, dict):
-        return JsonResponse({"error": "Request body must be a JSON object"}, status=400)
-
-    cleaned, error = _validate_settings_body(body)
-    if error:
-        return JsonResponse({"error": error}, status=400)
-
-    settings = _get_settings(request)
-    settings.update(cleaned)
-    _save_settings(request, settings)
-    return JsonResponse({"ok": True})
 
 
 _HISTORY_CACHE_KEY = 'station_history_v2:{}:{}'  #!< Per-station history cache key (v2 = separate temp/precip series)

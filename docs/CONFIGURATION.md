@@ -32,7 +32,7 @@ python -c "from django.utils.crypto import get_random_string; print(get_random_s
   - Empty by default (fine for LAN-only deployments). Set this once the app is
     reachable over HTTPS through a public hostname, especially if TLS terminates
     at a reverse proxy — it's cheap insurance against proxy header quirks tripping
-    the CSRF referer check on the app's one POST endpoint (`/api/settings/save/`).
+    the CSRF referer check on the settings PATCH endpoint (`/api/settings/`).
 
 ## Optional runtime settings
 

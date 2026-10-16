@@ -4,7 +4,7 @@ Each test registers Playwright route mocks for the external-data endpoints
 (``/api/stations/`` and ``/api/station/<id>/``) so the suite runs without a
 live Digitraffic/FMI connection or a Redis instance.
 
-Settings endpoints (``/api/settings/`` and ``/api/settings/save/``) hit the
+The ``/api/settings/`` endpoint hits the
 real Django server because they only use signed-cookie sessions — no cache.
 
 Run with:
@@ -122,7 +122,7 @@ def _fulfill_json(route, data):
 def _mock_external_apis(page: Page) -> None:
     """Register route mocks for the endpoints that call external services.
 
-    ``/api/settings/`` and ``/api/settings/save/`` are intentionally NOT mocked
+    ``/api/settings/`` is intentionally NOT mocked
     so real session-cookie persistence can be exercised.
     """
     page.route("**/api/stations/", lambda route: _fulfill_json(route, _STATIONS))
@@ -241,7 +241,7 @@ def test_language_switch_updates_all_labels(page: Page, base_url: str) -> None:
 
 
 def test_settings_language_persists_across_reload(page: Page, base_url: str) -> None:
-    """Language saved via /api/settings/save/ is restored from session on reload."""
+    """Language patched via /api/settings/ is restored from session on reload."""
     _mock_external_apis(page)
     page.goto(base_url)
 
@@ -256,7 +256,7 @@ def test_settings_language_persists_across_reload(page: Page, base_url: str) -> 
     select.select_option(value="1001")
     expect(page.locator("#temp-value")).to_have_text("-2.5 °C")
 
-    # Switch to English — this POSTs to /api/settings/save/ (real Django session)
+    # Switch to English — this PATCHes /api/settings/ (real Django session)
     page.locator("#lang-btn").click()
     page.locator(".lang-option[data-value='en']").click()
     expect(page.locator("#app-title")).to_have_text("Road Weather")

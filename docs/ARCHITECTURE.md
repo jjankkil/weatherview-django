@@ -205,8 +205,7 @@ classDiagram
 | GET    | `/api/stations/`         | `api_stations`        | Returns the cached, filtered station catalogue       |
 | GET    | `/api/station/<int:id>/` | `api_station_data`    | Parsed observations + FMI WFS forecast               |
 | GET    | `/api/station-history/<int:id>/` | `api_station_history` | Returns bucketed temperature/precipitation history for a station, plus `rain_sum_24h` (trailing 24h rain total, independent of the shown history window) |
-| GET    | `/api/settings/`         | `api_settings_get`    | Reads session settings                               |
-| POST   | `/api/settings/save/`    | `api_settings_save`   | Writes whitelisted session settings (CSRF-protected) |
+| GET/PATCH | `/api/settings/`      | `api_settings`        | Reads or partially updates whitelisted settings (PATCH is CSRF-protected) |
 | GET/POST    | `/api/nearest-station/`  | `api_nearest_station` | Returns the station closest to query params or a JSON body with `lat`/`lon` |
 
 Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `show_history`, and `history_hours`. Only those keys are accepted; other keys are ignored and invalid values return HTTP 400 ([views.py](../weather/views.py)).
@@ -451,10 +450,10 @@ flowchart TD
     I --> J{Timer hits 0<br/>or user clicks 'Päivitä nyt'}
     J --> F
     G --> K[User picks station]
-    K --> L[POST /api/settings/save/<br/>current_station_*]
+    K --> L[PATCH /api/settings/<br/>current_station_*]
     L --> M[Update MRU in localStorage]
     M --> F
-    N([User toggles lang / settings]) --> O[POST /api/settings/save/]
+    N([User toggles lang / settings]) --> O[PATCH /api/settings/]
     O --> F
     P([User clicks search]) --> Q[Open station search modal]
     Q --> R{User selects result}

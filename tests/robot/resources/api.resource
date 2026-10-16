@@ -35,7 +35,7 @@ Get Settings
 Save Settings
     [Arguments]    ${payload}
     ${headers}=    Create Dictionary    X-CSRFToken=${CSRF_TOKEN}
-    ${resp}=    POST On Session    weather    /api/settings/save/    json=${payload}
+    ${resp}=    PATCH On Session    weather    /api/settings/    json=${payload}
     ...    headers=${headers}    expected_status=any
     RETURN    ${resp}
 

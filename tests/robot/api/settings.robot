@@ -1,5 +1,5 @@
 *** Settings ***
-Documentation    Tests for GET /api/settings/ and POST /api/settings/save/.
+Documentation    Tests for GET and PATCH /api/settings/.
 ...              Session-based only — no external API calls, so no "live" tag needed.
 Resource         ../resources/api.resource
 Suite Setup      Run Keywords    Start Django Server    AND    Create API Session
@@ -61,6 +61,6 @@ Reject Non Boolean Show Camera
     ${resp}=    Save Settings    ${payload}
     Should Be Equal As Integers    ${resp.status_code}    400
 
-Settings Save Requires POST
-    ${resp}=    GET On Session    weather    /api/settings/save/    expected_status=any
+Settings Resource Rejects POST
+    ${resp}=    POST On Session    weather    /api/settings/    expected_status=any
     Should Be Equal As Integers    ${resp.status_code}    405

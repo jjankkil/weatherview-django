@@ -44,8 +44,8 @@ export async function fetchSettings() {
 
 export async function saveSettings(patch) {
   try {
-    await fetch("/api/settings/save/", {
-      method: "POST",
+    await fetch("/api/settings/", {
+      method: "PATCH",
       headers: {
         "Content-Type": "application/json",
         "X-CSRFToken": getCsrfToken(),
