@@ -27,6 +27,10 @@ _STATIONS = {
             "formatted_name": "Helsinki / Pasila",
             "lat": 60.198,
             "lon": 24.932,
+            "_links": {
+                "self": {"href": "/api/station/1001/"},
+                "history": {"href": "/api/station-history/1001/"},
+            },
         },
         {
             "id": 1002,
@@ -34,6 +38,10 @@ _STATIONS = {
             "formatted_name": "Tampere / Airanteentie",
             "lat": 61.497,
             "lon": 23.763,
+            "_links": {
+                "self": {"href": "/api/station/1002/"},
+                "history": {"href": "/api/station-history/1002/"},
+            },
         },
     ]
 }

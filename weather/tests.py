@@ -266,6 +266,15 @@ class ApiViewTests(SimpleTestCase):
         response = self.client.post("/api/station/12345/")
         self.assertEqual(response.status_code, 405)
 
+    def test_api_root_advertises_entry_links(self):
+        response = self.client.get("/api/")
+        self.assertEqual(response.status_code, 200)
+        links = response.json()["_links"]
+        self.assertTrue(links["stations"]["href"].endswith("/api/stations/"))
+        self.assertTrue(links["settings"]["href"].endswith("/api/settings/"))
+        self.assertEqual(links["settings"]["methods"], ["GET", "PATCH"])
+        self.assertTrue(links["nearest-station"]["href"].endswith("/api/nearest-station/"))
+
     def test_unknown_station_returns_not_found(self):
         station_list = MagicMock()
         station_list.find_by_id.return_value = None
@@ -612,6 +621,7 @@ class ViewTests(SimpleTestCase):
         )
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["language"], "en")
+        self.assertNotIn("_links", self.client.session["wx_settings"])
 
         r = self._get("/api/settings/")
         self.assertEqual(r.json()["language"], "en")
@@ -638,6 +648,8 @@ class ViewTests(SimpleTestCase):
         data = r.json()
         self.assertEqual(len(data["stations"]), 1)
         self.assertEqual(data["stations"][0]["formatted_name"], "Oulu, Ritaharju vt4")
+        self.assertTrue(data["stations"][0]["_links"]["self"]["href"].endswith("/api/station/12345/"))
+        self.assertTrue(data["stations"][0]["_links"]["history"]["href"].endswith("/api/station-history/12345/"))
 
     @patch("weather.services.weather_service.requests.get")
     def test_api_station_data_with_fmi_forecast(self, mock_get):
@@ -654,6 +666,7 @@ class ViewTests(SimpleTestCase):
         self.assertEqual(data["station_id"], 12345)
         self.assertEqual(data["station_name"], "Oulu, Ritaharju vt4")
         self.assertEqual(data["temperature_raw"], 10.7)
+        self.assertTrue(data["_links"]["self"]["href"].endswith("/api/station/12345/"))
         # FMI forecast is always fetched — current_symbol from first hourly entry
         self.assertEqual(data["current_symbol"], "\u2600")  # WeatherSymbol3=1 → ☀
         self.assertEqual(len(data["forecast"]), 2)  # 1 hourly + 1 daily
@@ -704,6 +717,7 @@ class ViewTests(SimpleTestCase):
         data = r.json()
         self.assertEqual(data["id"], 12345)
         self.assertEqual(data["formatted_name"], "Oulu, Ritaharju vt4")
+        self.assertTrue(data["_links"]["self"]["href"].endswith("/api/station/12345/"))
 
     def test_api_nearest_station_missing_params(self):
         """@brief POST /api/nearest-station/ without lat/lon returns HTTP 400."""
@@ -715,6 +729,24 @@ class ViewTests(SimpleTestCase):
         """@brief POST /api/nearest-station/ with non-numeric lat/lon returns HTTP 400."""
         r = self._post("/api/nearest-station/", data='{"lat": "abc", "lon": "xyz"}', content_type="application/json")
         self.assertEqual(r.status_code, 400)
+
+    @patch("weather.views.WeatherService")
+    def test_station_history_response_has_resource_links(self, mock_service):
+        service = mock_service.return_value
+        service.has_error = False
+        service.get_station_history.return_value = {
+            "temp_series": [],
+            "precip_series": [],
+            "has_precipitation": False,
+            "rain_sum_24h": None,
+        }
+
+        response = self._get("/api/station-history/12345/")
+
+        self.assertEqual(response.status_code, 200)
+        links = response.json()["_links"]
+        self.assertTrue(links["self"]["href"].endswith("/api/station-history/12345/"))
+        self.assertTrue(links["station"]["href"].endswith("/api/station/12345/"))
 
     @patch("weather.services.weather_service.requests.get")
     def test_api_station_data_upstream_503_returns_502_with_clean_message(self, mock_get):

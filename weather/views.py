@@ -17,6 +17,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.utils import timezone as dj_tz
 from django.views.decorators.http import require_http_methods
 
@@ -148,6 +149,38 @@ def index(request):
     return render(request, "weather/index.html")
 
 
+def _api_link(request, route_name: str, method: str = "GET", **kwargs) -> dict:
+    link = {"href": request.build_absolute_uri(reverse(route_name, kwargs=kwargs))}
+    if method != "GET":
+        link["method"] = method
+    return link
+
+
+def _settings_link(request) -> dict:
+    return {
+        **_api_link(request, "api_settings"),
+        "methods": ["GET", "PATCH"],
+    }
+
+
+def _station_links(request, station_id: int) -> dict:
+    return {
+        "self": _api_link(request, "api_station_data", station_id=station_id),
+        "history": _api_link(request, "api_station_history", station_id=station_id),
+    }
+
+
+@require_http_methods(["GET"])
+def api_root(request):
+    """Advertise the entry points for the JSON API."""
+    return JsonResponse({"_links": {
+        "self": _api_link(request, "api_root"),
+        "stations": _api_link(request, "api_stations"),
+        "settings": _settings_link(request),
+        "nearest-station": _api_link(request, "api_nearest_station", "POST"),
+    }})
+
+
 @require_http_methods(["GET"])
 def api_stations(request):
     """Get the list of available weather stations (public only).
@@ -157,20 +190,26 @@ def api_stations(request):
     to minimize FMI API requests.
 
     @param request Django request object.
-    @return JsonResponse with structure: {"stations": [station_dict, ...]}
-            where each station_dict contains: id, name, formatted_name, lat, lon
+    @return JsonResponse with a stations collection; each station has observation
+            and history links.
     @details
     - HTTP method: GET
     - Cache key: 'weather_station_list'
     - Station list filtered by @ref ok_to_add_station (public stations only)
     - Each station includes geographic coordinates for mapping
-    - Returns empty array if FMI API request fails
+    - Returns HTTP 502 if the upstream station catalogue cannot be fetched
     """
     try:
         station_list = _get_station_list()
     except StationListUnavailable as exc:
         return JsonResponse({"error": str(exc)}, status=502)
-    return JsonResponse({"stations": station_list.get_name_list()})
+    stations = station_list.get_name_list()
+    for station in stations:
+        station["_links"] = _station_links(request, station["id"])
+    return JsonResponse({
+        "stations": stations,
+        "_links": {"self": _api_link(request, "api_stations")},
+    })
 
 
 @require_http_methods(["GET"])
@@ -192,7 +231,7 @@ def api_station_data(request, station_id: int):
     @details
     - HTTP method: GET
     - Display language from session settings (default: Finnish)
-    - Returns HTTP 502 (Bad Gateway) if station not found or Digitraffic API fails
+    - Returns HTTP 404 if station not found and HTTP 502 if Digitraffic fails
     - FMI WFS forecast is always fetched; failures degrade gracefully to empty forecast
     - Per-station response cache (key: 'station_data:{id}:{lang}'): on a cache hit the cached
       response is served immediately unless the request carries ?refresh=1 (sent by the
@@ -230,6 +269,7 @@ def api_station_data(request, station_id: int):
         remaining = max(0, int((next_update_at - now).total_seconds())) if next_update_at else 60
         response = {k: v for k, v in cached.items() if k != "_next_update_at"}
         response["seconds_until_next_update"] = remaining
+        response["_links"] = _station_links(request, station_id)
         return JsonResponse(response)
 
     service = WeatherService()
@@ -244,6 +284,7 @@ def api_station_data(request, station_id: int):
     cache.set(cache_key, data, ttl)
 
     response = {k: v for k, v in data.items() if k != "_next_update_at"}
+    response["_links"] = _station_links(request, station_id)
     return JsonResponse(response)
 
 
@@ -251,7 +292,9 @@ def api_station_data(request, station_id: int):
 def api_settings(request):
     """Read or partially update the current user's settings resource."""
     if request.method == "GET":
-        return JsonResponse(_get_settings(request))
+        user_settings = _get_settings(request)
+        user_settings["_links"] = {"self": _settings_link(request)}
+        return JsonResponse(user_settings)
 
     try:
         body = json.loads(request.body)
@@ -268,7 +311,10 @@ def api_settings(request):
     user_settings = _get_settings(request)
     user_settings.update(cleaned)
     _save_settings(request, user_settings)
-    return JsonResponse(user_settings)
+    return JsonResponse({
+        **user_settings,
+        "_links": {"self": _settings_link(request)},
+    })
 
 
 @require_http_methods(["POST"])
@@ -314,6 +360,7 @@ def api_nearest_station(request):
         return math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     nearest = min(stations, key=_dist)
+    nearest["_links"] = _station_links(request, nearest["id"])
     return JsonResponse(nearest)
 
 
@@ -403,7 +450,12 @@ def api_station_history(request, station_id: int):
     cache_key = _HISTORY_CACHE_KEY.format(station_id, hours)
     cached = cache.get(cache_key)
     if cached is not None:
-        return JsonResponse(cached)
+        response = dict(cached)
+        response["_links"] = {
+            "self": _api_link(request, "api_station_history", station_id=station_id),
+            "station": _api_link(request, "api_station_data", station_id=station_id),
+        }
+        return JsonResponse(response)
 
     service = WeatherService()
     data = service.get_station_history(station_id, hours)
@@ -411,4 +463,9 @@ def api_station_history(request, station_id: int):
         return JsonResponse({"error": service.error_message}, status=502)
 
     cache.set(cache_key, data, 300)
-    return JsonResponse(data)
+    response = dict(data)
+    response["_links"] = {
+        "self": _api_link(request, "api_station_history", station_id=station_id),
+        "station": _api_link(request, "api_station_data", station_id=station_id),
+    }
+    return JsonResponse(response)

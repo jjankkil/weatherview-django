@@ -202,6 +202,7 @@ classDiagram
 | Method    | Path                             | View                  | Purpose                                                                                                                                                  |
 | --------- | -------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET       | `/`                              | `index`               | Serves the SPA shell (`index.html`)                                                                                                                      |
+| GET       | `/api/`                          | `api_root`            | API entry point; advertises collection and action links                                                                                                  |
 | GET       | `/api/stations/`                 | `api_stations`        | Returns the cached, filtered station catalogue                                                                                                           |
 | GET       | `/api/station/<int:id>/`         | `api_station_data`    | Parsed observations + FMI WFS forecast                                                                                                                   |
 | GET       | `/api/station-history/<int:id>/` | `api_station_history` | Returns bucketed temperature/precipitation history for a station, plus `rain_sum_24h` (trailing 24h rain total, independent of the shown history window) |
@@ -211,6 +212,8 @@ classDiagram
 Session settings whitelist: `current_station_id`, `current_station_name`, `language`, `show_camera`, `show_history`, and `history_hours`. Only those keys are accepted; other keys are ignored and invalid values return HTTP 400 ([views.py](../weather/views.py)).
 
 The station catalogue, station detail, station history, and settings-read endpoints are GET-only; other methods return HTTP 405.
+
+Clients begin at `/api/` and follow its `_links` relations. Station records expose `self` and `history` links; station-history representations link back to their station; settings and station-detail representations expose `self` links. Link objects include the supported method where it differs from GET.
 
 An unknown station detail URL returns HTTP 404. HTTP 502 is reserved for upstream service failures.
 If the upstream station catalogue cannot be fetched, station-list, station-detail, and nearest-station requests return HTTP 502 rather than a successful empty result.
@@ -233,9 +236,11 @@ sequenceDiagram
     User->>Browser: open /
     Browser->>Django: GET /
     Django-->>Browser: index.html + static
-    Browser->>Django: GET /api/settings/
+    Browser->>Django: GET /api/
+    Django-->>Browser: _links {settings, stations, nearest-station}
+    Browser->>Django: GET settings link
     Django-->>Browser: {language, current_station_id, show_camera, ...}
-    Browser->>Django: GET /api/stations/
+    Browser->>Django: GET stations link
     Django->>Cache: get('weather_station_list')
     alt cache miss
         Django->>DT: GET /api/weather/v1/stations
@@ -243,14 +248,14 @@ sequenceDiagram
         Django->>Django: WeatherStationList.parse + sort
         Django->>Cache: set(list, ttl=5min)
     end
-    Django-->>Browser: [{id, name, formatted_name, lat, lon}, ...]
+    Django-->>Browser: {stations: [...], _links: {self}, station links}
     Browser->>Browser: render dropdown, restore MRU from localStorage
     alt no saved station
         Browser->>Browser: navigator.geolocation.getCurrentPosition()
-        Browser->>Django: POST /api/nearest-station/ {lat, lon}
-        Django-->>Browser: nearest station dict
+        Browser->>Django: POST nearest-station link {lat, lon}
+        Django-->>Browser: nearest station dict with resource links
     end
-    Browser->>Django: GET /api/station/<id>/
+    Browser->>Django: GET station self link
 ```
 
 ### 5.2 Station observation request (backend)
@@ -434,13 +439,14 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A([Page load]) --> B[GET /api/settings/]
-    B --> C[GET /api/stations/]
+    A([Page load]) --> ROOT[GET /api/]
+    ROOT --> B[Follow settings link]
+    B --> C[Follow stations link]
     C --> D[Populate dropdown<br/>+ MRU group from localStorage]
     D --> E2{Has saved<br/>station?}
-    E2 -->|yes| F[GET /api/station/id]
+    E2 -->|yes| F[Follow station self link]
     E2 -->|no| GEO[selectNearestByGeolocation]
-    GEO -->|position obtained| NS[GET /api/nearest-station/]
+    GEO -->|position obtained| NS[POST nearest-station link]
     GEO -->|denied / unavailable| F1["Use stations[0]"]
     NS --> F
     F1 --> F
@@ -450,10 +456,10 @@ flowchart TD
     I --> J{Timer hits 0<br/>or user clicks 'Päivitä nyt'}
     J --> F
     G --> K[User picks station]
-    K --> L[PATCH /api/settings/<br/>current_station_*]
+    K --> L[PATCH settings self link<br/>current_station_*]
     L --> M[Update MRU in localStorage]
     M --> F
-    N([User toggles lang / settings]) --> O[PATCH /api/settings/]
+    N([User toggles lang / settings]) --> O[PATCH settings self link]
     O --> F
     P([User clicks search]) --> Q[Open station search modal]
     Q --> R{User selects result}

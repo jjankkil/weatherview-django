@@ -13,6 +13,7 @@ from . import views
 
 urlpatterns = [  ##< URL patterns for the weather app: index, station list, station data, settings.
     path('', views.index, name='index'),
+    path('api/', views.api_root, name='api_root'),
     path('api/stations/', views.api_stations, name='api_stations'),
     path('api/station/<int:station_id>/', views.api_station_data, name='api_station_data'),
     path('api/station-history/<int:station_id>/', views.api_station_history, name='api_station_history'),

@@ -12,6 +12,36 @@ import {
 import { showCameraForStation, showStationDistance } from "./camera.js";
 import { renderTrendChart, destroyTrendChart } from "./trend_chart.js";
 
+type ApiLink = { href: string };
+type ApiLinkMap = Record<string, ApiLink>;
+let apiLinksPromise: Promise<ApiLinkMap> | null = null;
+
+export async function getApiHref(relation: string) {
+  if (!apiLinksPromise) {
+    apiLinksPromise = fetch("/api/")
+      .then((response) => {
+        if (!response.ok)
+          throw new Error(`API root returned HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((data) => data._links as ApiLinkMap)
+      .catch((error) => {
+        apiLinksPromise = null;
+        throw error;
+      });
+  }
+  const href = (await apiLinksPromise)[relation]?.href;
+  if (!href) throw new Error(`API root does not advertise '${relation}'`);
+  return href;
+}
+
+function getStationHref(stationId: number, relation: "self" | "history") {
+  const station = state.stations.find((item) => item.id === stationId);
+  const href = station?._links?.[relation]?.href;
+  if (!href) throw new Error(`Station ${stationId} has no '${relation}' link`);
+  return href;
+}
+
 // ── CSRF token ───────────────────────────────────────────────
 export function getCsrfToken() {
   const meta = document.querySelector<HTMLMetaElement>(
@@ -27,7 +57,7 @@ export function getCsrfToken() {
  */
 export async function fetchSettings() {
   try {
-    const r = await fetch("/api/settings/");
+    const r = await fetch(await getApiHref("settings"));
     if (!r.ok) return;
     const data = await r.json();
     if (data.language) state.lang = data.language;
@@ -44,7 +74,7 @@ export async function fetchSettings() {
 
 export async function saveSettings(patch) {
   try {
-    await fetch("/api/settings/", {
+    await fetch(await getApiHref("settings"), {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -61,7 +91,7 @@ export async function saveSettings(patch) {
 export async function fetchStations() {
   dom.stationSelect.innerHTML = `<option value="">${labels().loadingStations}</option>`;
   try {
-    const r = await fetch("/api/stations/");
+    const r = await fetch(await getApiHref("stations"));
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
       showError(d.error || `HTTP ${r.status}`);
@@ -83,7 +113,7 @@ export async function fetchStations() {
  */
 export async function fetchStationHistory(stationId) {
   try {
-    const r = await fetch(`/api/station-history/${stationId}/`);
+    const r = await fetch(getStationHref(stationId, "history"));
     if (!r.ok) return null;
     return await r.json();
   } catch (_) {
@@ -137,9 +167,8 @@ export async function fetchWeather(stationId, fresh = false) {
   hideError();
 
   try {
-    const url = fresh
-      ? `/api/station/${stationId}/?refresh=1`
-      : `/api/station/${stationId}/`;
+    const href = getStationHref(stationId, "self");
+    const url = fresh ? `${href}?refresh=1` : href;
     const r = await fetch(url);
 
     if (!r.ok) {
