@@ -266,6 +266,17 @@ class ApiViewTests(SimpleTestCase):
         response = self.client.post("/api/station/12345/")
         self.assertEqual(response.status_code, 405)
 
+    def test_unknown_station_returns_not_found(self):
+        station_list = MagicMock()
+        station_list.find_by_id.return_value = None
+
+        with patch("weather.views._get_station_list", return_value=station_list), \
+                patch("weather.views._is_rate_limited", return_value=False):
+            response = self.client.get("/api/station/9999999/")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"error": "Station 9999999 not found"})
+
     def test_api_nearest_station_accepts_get_query_params(self):
         """The nearest-station endpoint should also work for GET requests from older clients."""
         station_list = MagicMock()

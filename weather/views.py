@@ -178,9 +178,9 @@ def api_station_data(request, station_id: int):
     @return JsonResponse with aggregated weather data:
             - On success (200): complete weather dict with temperature, wind, humidity,
               current_symbol, forecast, etc. (see @ref WeatherService.build_full_weather_response)
-            - On error (502): {"error": "Station {id} not found"} if the station is unknown,
-              or a clean human-readable message such as "Upstream service error (HTTP 503)"
-              when Digitraffic returns a 5xx response. Safe to display directly in the UI.
+                        - On error (404): {"error": "Station {id} not found"} if the station is unknown.
+                        - On upstream error (502): a clean human-readable message such as
+                            "Upstream service error (HTTP 503)". Safe to display directly in the UI.
     @details
     - HTTP method: GET
     - Display language from session settings (default: Finnish)
@@ -207,6 +207,8 @@ def api_station_data(request, station_id: int):
     lang = user_settings.get("language", "fi")
 
     station_list = _get_station_list()
+    if station_list.find_by_id(station_id) is None:
+        return JsonResponse({"error": f"Station {station_id} not found"}, status=404)
 
     cache_key = _STATION_DATA_KEY.format(station_id, lang)
     want_fresh = request.GET.get('refresh') == '1'

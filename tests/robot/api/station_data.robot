@@ -28,10 +28,10 @@ Internal Field Is Stripped From Response
     ${resp}=    Get Station Data    ${VALID_STATION_ID}
     Dictionary Should Not Contain Key    ${resp.json()}    _next_update_at
 
-Unknown Station Returns 502
+Unknown Station Returns 404
     [Documentation]    Station lookup uses the real (live) station list — an ID
     ...                absent from it triggers the "not found" error path.
     [Tags]    live
     ${resp}=    Get Station Data    ${INVALID_STATION_ID}
-    Should Be Equal As Integers    ${resp.status_code}    502
+    Should Be Equal As Integers    ${resp.status_code}    404
     Dictionary Should Contain Key    ${resp.json()}    error
