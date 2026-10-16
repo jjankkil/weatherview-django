@@ -55,6 +55,10 @@ def _is_rate_limited(ip: str) -> bool:
     return False
 
 
+class StationListUnavailable(Exception):
+    """Raised when the upstream station catalogue cannot be fetched."""
+
+
 def _get_station_list() -> WeatherStationList:
     """Fetch the FMI weather station list with caching.
 
@@ -75,8 +79,9 @@ def _get_station_list() -> WeatherStationList:
         return cached
     service = WeatherService()
     station_list = service.get_station_list()
-    if not service.has_error:
-        cache.set(_STATION_CACHE_KEY, station_list)
+    if service.has_error:
+        raise StationListUnavailable(service.error_message or "Station catalogue unavailable")
+    cache.set(_STATION_CACHE_KEY, station_list)
     return station_list
 
 _SETTINGS_KEY = "wx_settings"  #!< Session key for user weather settings
@@ -161,7 +166,10 @@ def api_stations(request):
     - Each station includes geographic coordinates for mapping
     - Returns empty array if FMI API request fails
     """
-    station_list = _get_station_list()
+    try:
+        station_list = _get_station_list()
+    except StationListUnavailable as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
     return JsonResponse({"stations": station_list.get_name_list()})
 
 
@@ -206,7 +214,10 @@ def api_station_data(request, station_id: int):
     user_settings = _get_settings(request)
     lang = user_settings.get("language", "fi")
 
-    station_list = _get_station_list()
+    try:
+        station_list = _get_station_list()
+    except StationListUnavailable as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
     if station_list.find_by_id(station_id) is None:
         return JsonResponse({"error": f"Station {station_id} not found"}, status=404)
 
@@ -297,7 +308,10 @@ def api_nearest_station(request):
         except (json.JSONDecodeError, UnicodeDecodeError, KeyError, ValueError, TypeError):
             return JsonResponse({"error": "lat and lon are required numeric fields in the JSON body"}, status=400)
 
-    station_list = _get_station_list()
+    try:
+        station_list = _get_station_list()
+    except StationListUnavailable as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
     stations = station_list.get_name_list()
     if not stations:
         return JsonResponse({"error": "No stations available"}, status=503)

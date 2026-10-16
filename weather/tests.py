@@ -277,6 +277,28 @@ class ApiViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json(), {"error": "Station 9999999 not found"})
 
+    def test_station_catalogue_upstream_failure_returns_bad_gateway(self):
+        service = MagicMock()
+        service.has_error = True
+        service.error_message = "Upstream service error (HTTP 503)"
+
+        with patch("weather.views.cache.get", return_value=None), \
+                patch("weather.views.WeatherService", return_value=service), \
+                patch("weather.views._is_rate_limited", return_value=False):
+            responses = [
+                self.client.get("/api/stations/"),
+                self.client.get("/api/station/12345/"),
+                self.client.post(
+                    "/api/nearest-station/",
+                    data=json.dumps({"lat": 60.0, "lon": 25.0}),
+                    content_type="application/json",
+                ),
+            ]
+
+        for response in responses:
+            self.assertEqual(response.status_code, 502)
+            self.assertEqual(response.json(), {"error": service.error_message})
+
     def test_api_nearest_station_accepts_get_query_params(self):
         """The nearest-station endpoint should also work for GET requests from older clients."""
         station_list = MagicMock()

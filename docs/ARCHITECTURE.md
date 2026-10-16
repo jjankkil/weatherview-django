@@ -214,6 +214,7 @@ Session settings whitelist: `current_station_id`, `current_station_name`, `langu
 The station catalogue, station detail, station history, and settings-read endpoints are GET-only; other methods return HTTP 405.
 
 An unknown station detail URL returns HTTP 404. HTTP 502 is reserved for upstream service failures.
+If the upstream station catalogue cannot be fetched, station-list, station-detail, and nearest-station requests return HTTP 502 rather than a successful empty result.
 
 ---
 
