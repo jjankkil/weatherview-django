@@ -167,8 +167,9 @@ sudo ~/.local/bin/certbot certonly \
   -d <PUBLIC_HOSTNAME>
 ```
 
-Certbot's own systemd timer handles renewal automatically. Verify the cert exists
-before touching Nginx config:
+The `pipx` installation above does not necessarily install a systemd renewal
+timer. Set one up and verify it below; without a scheduled renewal, the
+certificate will expire. Verify the cert exists before touching Nginx config:
 
 ```bash
 sudo ls -l /etc/letsencrypt/live/<PUBLIC_HOSTNAME>/
@@ -178,6 +179,108 @@ sudo ls -l /etc/letsencrypt/live/<PUBLIC_HOSTNAME>/
 `nginx -t` will fail with a clear "no such file" error otherwise. That failure is
 a useful sanity check, but it does mean the two steps have to be done in this
 order.
+
+### Automatic renewal
+
+First, test that Certbot can renew this certificate and check whether a suitable
+timer is already installed. Use the same Certbot executable that issued the
+certificate:
+
+```bash
+sudo ~/.local/bin/certbot renew --dry-run
+systemctl list-timers --all | grep -i certbot
+sudo systemctl list-unit-files 'certbot*'
+```
+
+The dry run should succeed. If it fails, fix the reported issue (commonly the
+DNS plugin or DuckDNS credentials) before relying on scheduled renewal. If a
+Certbot timer is listed, inspect its service with
+`sudo systemctl cat certbot.timer certbot.service`; confirm it invokes the same
+Certbot installation and DNS plugin. Enable it if needed:
+
+```bash
+sudo systemctl enable --now certbot.timer
+systemctl status certbot.timer
+systemctl list-timers --all | grep -i certbot
+```
+
+If there is no suitable timer (common with a `pipx` installation), create one
+that runs the pipx-installed Certbot as root. Replace `/home/<LINUX_USER>` with
+the home directory of the account where you installed Certbot with `pipx`.
+`ExecStart` must be an absolute path; systemd does not expand `~`.
+
+Have Nginx reload only after Certbot has successfully deployed a renewed
+certificate:
+
+```bash
+sudo install -d /etc/letsencrypt/renewal-hooks/deploy
+sudo tee /etc/letsencrypt/renewal-hooks/deploy/90-reload-nginx >/dev/null <<'EOF'
+#!/bin/sh
+nginx -t && systemctl reload nginx
+EOF
+sudo chmod 755 /etc/letsencrypt/renewal-hooks/deploy/90-reload-nginx
+```
+
+Create `/etc/systemd/system/certbot-renew.service`:
+
+```ini
+[Unit]
+Description=Renew Let's Encrypt certificates
+
+[Service]
+Type=oneshot
+ExecStart=/home/<LINUX_USER>/.local/bin/certbot renew --quiet
+```
+
+Create `/etc/systemd/system/certbot-renew.timer`:
+
+```ini
+[Unit]
+Description=Run Let's Encrypt renewal twice daily
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+OnCalendar=*-*-* 15:00:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Load and enable the timer, then check that it is active and has a next run
+scheduled:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now certbot-renew.timer
+systemctl status certbot-renew.timer
+systemctl list-timers --all | grep certbot-renew
+```
+
+To run a renewal check immediately and inspect its log:
+
+```bash
+sudo systemctl start certbot-renew.service
+sudo journalctl -u certbot-renew.service -n 50 --no-pager
+```
+
+Certbot renews only certificates that are due; the scheduled service can
+successfully do nothing when no renewal is needed. After an expired certificate's
+dry run succeeds, run an actual renewal and reload Nginx:
+
+```bash
+sudo /home/<LINUX_USER>/.local/bin/certbot renew
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Confirm the certificate served to clients has a future expiry date:
+
+```bash
+echo | openssl s_client -connect <PUBLIC_HOSTNAME>:443 \
+  -servername <PUBLIC_HOSTNAME> 2>/dev/null |
+  openssl x509 -noout -dates -issuer -subject
+```
 
 ---
 
