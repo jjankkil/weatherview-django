@@ -130,6 +130,13 @@ point in time. The chart isn't scrollable or zoomable — it always shows the fu
 configured window at once, and redraws whenever new data arrives or you change the
 history length in settings.
 
+Temperature uses the left axis in °C, with a default range of −10°C to +10°C. The
+range expands in 5°C increments when observations fall outside it. The 0°C tick is
+shown with the same label color as the other temperature ticks, and its solid gridline
+is slightly emphasized as a freezing-point reference. The temperature line has no
+shaded fill. Precipitation uses the right axis in mm/h, starting at 0 and defaulting
+to 5 mm/h; it expands in 5 mm/h increments when higher values occur.
+
 For stations that report precipitation, two rain totals (in mm) appear below the
 chart: the total rainfall over the last 24 hours, and the total over your configured
 history window. If your history length is set to 24 hours, only one number is shown

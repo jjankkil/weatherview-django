@@ -309,6 +309,77 @@ def test_trend_section_appears_when_history_data_is_available(page: Page, base_u
     expect(page.locator("#trend-section")).to_be_visible()
 
 
+@pytest.mark.parametrize(("precipitation", "expected_max"), [(2.0, 5), (6.0, 10), (11.0, 15)])
+def test_trend_chart_uses_left_temperature_axis_and_safe_rain_scale(
+    page: Page, base_url: str, precipitation: float, expected_max: int,
+) -> None:
+    """Temperature uses the left axis; rain expands from 0–5 in 5 mm/h steps."""
+    history_data = {
+        **_HISTORY_DATA_WITH_RAIN_12H,
+        "precip_series": [
+            {"time": "2026-06-28T10:00:00Z", "precipitation": precipitation},
+        ],
+    }
+    _mock_all_apis(page, history_data=history_data)
+    page.goto(base_url)
+
+    expect(page.locator("#trend-section")).to_be_visible()
+    axes = page.locator("#trend-chart").evaluate("""canvas => {
+      const chart = Chart.getChart(canvas);
+      return {
+        temperaturePosition: chart.options.scales.yTemp.position,
+        precipitationPosition: chart.options.scales.yPrecip.position,
+        configuredPrecipitationMax: chart.options.scales.yPrecip.max ?? null,
+        actualPrecipitationMax: chart.scales.yPrecip.max,
+      };
+    }""")
+
+    assert axes["temperaturePosition"] == "left"
+    assert axes["precipitationPosition"] == "right"
+    assert axes["configuredPrecipitationMax"] == expected_max
+    assert axes["actualPrecipitationMax"] == expected_max
+
+
+@pytest.mark.parametrize(
+    ("temperatures", "expected_min", "expected_max"),
+    [([0.5, 1.5], -10, 10), ([-18.0, 22.0], -20, 25)],
+)
+def test_trend_chart_temperature_scale_has_freezing_context(
+    page: Page, base_url: str, temperatures: list[float], expected_min: int, expected_max: int,
+) -> None:
+    """Temperature defaults to −10–10°C and expands outwards in 5°C steps."""
+    history_data = {
+        "temp_series": [
+            {"time": f"2026-06-28T10:{index * 10:02d}:00Z", "temperature": value}
+            for index, value in enumerate(temperatures)
+        ],
+        "precip_series": [],
+        "has_precipitation": False,
+    }
+    _mock_all_apis(page, history_data=history_data)
+    page.goto(base_url)
+
+    expect(page.locator("#trend-section")).to_be_visible()
+    axis = page.locator("#trend-chart").evaluate("""canvas => {
+      const chart = Chart.getChart(canvas);
+      return {
+        min: chart.scales.yTemp.min,
+        max: chart.scales.yTemp.max,
+        ticks: chart.scales.yTemp.ticks.map(tick => tick.value),
+        temperatureFill: chart.data.datasets[0].fill,
+        hasFreezingReference: chart.config.plugins?.some(
+          plugin => plugin.id === 'freezingReference'
+        ) ?? false,
+      };
+    }""")
+
+    assert axis["min"] == expected_min
+    assert axis["max"] == expected_max
+    assert 0 in axis["ticks"]
+    assert axis["temperatureFill"] is False
+    assert not axis["hasFreezingReference"]
+
+
 def test_settings_modal_has_show_history_and_history_hours_controls(page: Page, base_url: str) -> None:
     """Settings modal contains the show_history toggle and history_hours input."""
     _mock_external_apis(page)

@@ -39,6 +39,13 @@ export function renderTrendChart(historyData) {
 
   // Temperature: {x: ISO timestamp, y: °C}
   const tempData = temp_series.map(b => ({ x: b.time, y: b.temperature }));
+  const temperatureValues = tempData
+    .map(point => point.y)
+    .filter(Number.isFinite);
+  const minTemperature = temperatureValues.length ? Math.min(...temperatureValues) : -10;
+  const maxTemperature = temperatureValues.length ? Math.max(...temperatureValues) : 10;
+  const tempAxisMin = Math.min(-10, Math.floor(minTemperature / 5) * 5);
+  const tempAxisMax = Math.max(10, Math.ceil(maxTemperature / 5) * 5);
 
   if (_chartInstance) {
     _chartInstance.destroy();
@@ -55,7 +62,7 @@ export function renderTrendChart(historyData) {
       borderWidth: 2,
       pointRadius: 0,
       pointHoverRadius: 3,
-      fill: true,
+      fill: false,
       tension: 0.3,
       yAxisID: 'yTemp',
       spanGaps: true,
@@ -65,10 +72,15 @@ export function renderTrendChart(historyData) {
 
   renderRainSummary(precip_series, has_precipitation, rain_sum_24h);
 
+  let maxPrecip = 0;
   if (has_precipitation) {
     // Precipitation: {x: ISO timestamp, y: mm/h} — one point per hour.
     // With a time scale Chart.js automatically sizes each bar to span one hour.
     const precipData = precip_series.map(b => ({ x: b.time, y: b.precipitation }));
+    maxPrecip = precipData.reduce(
+      (max, point) => Number.isFinite(point.y) ? Math.max(max, point.y) : max,
+      0,
+    );
     datasets.push({
       type: 'bar',
       label: labels().precipLegend,
@@ -131,18 +143,32 @@ export function renderTrendChart(historyData) {
         },
         yTemp: {
           type: 'linear',
-          position: 'right',
+          position: 'left',
+          min: tempAxisMin,
+          max: tempAxisMax,
           ...scaleDefaults,
-          ticks: { ...scaleDefaults.ticks, color: '#ff9575' },
-          // Only suppress grid lines when precipitation axis (left) draws them instead
-          grid: has_precipitation ? { drawOnChartArea: false } : scaleDefaults.grid,
+          grid: {
+            ...scaleDefaults.grid,
+            color: context => context.tick?.value === 0
+              ? 'rgba(77,208,225,0.22)'
+              : scaleDefaults.grid.color,
+            lineWidth: context => context.tick?.value === 0 ? 1.25 : 1,
+          },
+          ticks: {
+            ...scaleDefaults.ticks,
+            color: '#ff9575',
+            stepSize: 5,
+            autoSkip: false,
+          },
         },
         ...(has_precipitation ? {
           yPrecip: {
             type: 'linear',
-            position: 'left',
+            position: 'right',
             ...scaleDefaults,
             min: 0,
+            max: Math.max(5, Math.ceil(maxPrecip / 5) * 5),
+            grid: { drawOnChartArea: false },
             ticks: { ...scaleDefaults.ticks, color: '#4a9eff' },
           },
         } : {}),
